@@ -49,10 +49,12 @@ class StockDatabase:
             close   FLOAT,
             vol     BIGINT,
             amount  BIGINT,
+            is_today BOOLEAN DEFAULT FALSE,
             PRIMARY KEY (code, date)
         );
         CREATE INDEX IF NOT EXISTS idx_date ON {TABLE}(date);
         CREATE INDEX IF NOT EXISTS idx_code ON {TABLE}(code);
+        CREATE INDEX IF NOT EXISTS idx_is_today ON {TABLE}(is_today);
     """
 
     def __init__(self, db_path: str = "stocks_daily.db") -> None:
@@ -77,16 +79,29 @@ class StockDatabase:
             conn.close()
 
     # ==================== 高吞吐写入 ====================
-    def bulk_upsert(self, df: pd.DataFrame) -> int:
+    def bulk_upsert(self, df: pd.DataFrame, validate_data: bool = True) -> int:
         """
         批量 UPSERT (INSERT OR REPLACE)
 
         DuckDB 最优写入路径:
         1. register() 零拷贝注册 DataFrame
         2. INSERT OR REPLACE INTO ... SELECT 批量写入
+        
+        Args:
+            df: 要写入的数据
+            validate_data: 是否进行数据验证
+            
+        Returns:
+            写入的行数
         """
         if df.empty:
             return 0
+
+        # 数据验证
+        if validate_data:
+            df = self._validate_bars(df)
+            if df.empty:
+                return 0
 
         df = self._normalize_df(df)
 
@@ -94,7 +109,7 @@ class StockDatabase:
             conn.register("_tmp_df", df)
             conn.execute(f"""
                 INSERT OR REPLACE INTO {self.TABLE}
-                SELECT code, market, date, open, high, low, close, vol, amount
+                SELECT code, market, date, open, high, low, close, vol, amount, is_today
                 FROM _tmp_df
             """)
             conn.unregister("_tmp_df")
@@ -267,6 +282,131 @@ class StockDatabase:
                 ORDER BY date, code
             """, codes + [start, end]).fetchdf()
 
+    # ==================== 新增方法 ====================
+    def query_latest_date(self, code: str = None) -> Optional[date]:
+        """
+        查询最新日期
+        
+        Args:
+            code: 股票代码，如果为None则查询全市场最新日期
+            
+        Returns:
+            最新日期，如果无数据则返回None
+        """
+        with self.connect() as conn:
+            if code:
+                result = conn.execute(f"""
+                    SELECT MAX(date) as latest FROM {self.TABLE} WHERE code = ?
+                """, [code]).fetchone()
+            else:
+                result = conn.execute(f"""
+                    SELECT MAX(date) as latest FROM {self.TABLE}
+                """).fetchone()
+                
+            return result[0] if result and result[0] else None
+
+    def delete_today_data(self) -> int:
+        """
+        删除当日数据
+        
+        Returns:
+            删除的行数
+        """
+        with self.connect() as conn:
+            result = conn.execute(f"""
+                DELETE FROM {self.TABLE} WHERE is_today = TRUE
+            """)
+            return result.rowcount if hasattr(result, 'rowcount') else 0
+
+    def mark_today_data(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        标记当日数据
+        
+        Args:
+            df: 要标记的数据
+            
+        Returns:
+            标记后的数据
+        """
+        df = df.copy()
+        today = date.today()
+        
+        # 将今日数据标记为 is_today = TRUE
+        df['is_today'] = df['date'] == today
+        return df
+
+    def validate_bars(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        数据验证：成交量>0, 涨跌幅<50%, 价格合理性
+        
+        Args:
+            df: 要验证的数据
+            
+        Returns:
+            验证通过的数据
+        """
+        return self._validate_bars(df)
+
+    def _validate_bars(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        内部数据验证方法
+        
+        Args:
+            df: 原始数据
+            
+        Returns:
+            验证通过的数据
+        """
+        if df.empty:
+            return df
+            
+        df = df.copy()
+        original_len = len(df)
+        
+        # 1. 成交量 > 0
+        df = df[df['vol'] > 0]
+        
+        # 2. 价格合理性检查
+        # high >= open,close,low 且 low <= open,close,high
+        price_valid = (
+            (df['high'] >= df[['open', 'close']].max(axis=1)) &
+            (df['low'] <= df[['open', 'close']].min(axis=1)) &
+            (df['high'] >= df['low']) &
+            (df['open'] > 0) &
+            (df['close'] > 0)
+        )
+        df = df[price_valid]
+        
+        # 3. 涨跌幅合理性检查 (单日涨跌幅不超过50%)
+        if len(df) > 1:
+            # 计算涨跌幅（假设数据按日期排序）
+            df_sorted = df.sort_values(['code', 'date']).copy()
+            
+            # 计算前一日收盘价
+            df_sorted['prev_close'] = df_sorted.groupby('code')['close'].shift(1)
+            
+            # 计算涨跌幅
+            df_sorted['pct_change'] = abs((df_sorted['close'] - df_sorted['prev_close']) / df_sorted['prev_close'])
+            
+            # 过滤涨跌幅超过50%的数据
+            df = df_sorted[df_sorted['pct_change'] <= 0.5].drop(columns=['prev_close', 'pct_change'])
+        
+        # 4. 金额与成交量的关系检查
+        if 'amount' in df.columns and 'vol' in df.columns:
+            # 基本合理性：金额应该约等于成交量 * 价格
+            avg_price = (df['open'] + df['high'] + df['low'] + df['close']) / 4
+            expected_amount = avg_price * df['vol']
+            
+            # 允许一定误差范围 (0.1x - 10x)
+            amount_ratio = df['amount'] / expected_amount
+            df = df[(amount_ratio >= 0.1) & (amount_ratio <= 10)]
+        
+        validated_len = len(df)
+        if validated_len < original_len:
+            print(f"[DB] Validation: {original_len - validated_len} invalid rows filtered, {validated_len} valid rows kept")
+            
+        return df
+
     # ==================== 统计与维护 ====================
     def get_stats(self) -> Dict:
         """数据库统计信息"""
@@ -308,9 +448,13 @@ class StockDatabase:
                 df['date'] = pd.to_datetime(df['date']).dt.date
             elif hasattr(df['date'].dtype, 'date'):
                 df['date'] = df['date'].dt.date
+        
+        # 确保 is_today 列存在
+        if 'is_today' not in df.columns:
+            df['is_today'] = False
 
         # 列顺序
-        cols = ['code', 'market', 'date', 'open', 'high', 'low', 'close', 'vol', 'amount']
+        cols = ['code', 'market', 'date', 'open', 'high', 'low', 'close', 'vol', 'amount', 'is_today']
         return df[[c for c in cols if c in df.columns]]
 
 
