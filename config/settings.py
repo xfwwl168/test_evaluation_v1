@@ -139,6 +139,35 @@ class LogConfig:
 
 
 @dataclass
+class AKShareConfig:
+    """AKShare配置"""
+    ENABLED: bool = True
+    RETRY_COUNT: int = 3
+    RETRY_DELAY_RANGE: tuple = (0.5, 2.0)
+    TIMEOUT: float = 30.0
+
+
+@dataclass
+class SchedulerConfig:
+    """调度器配置"""
+    ENABLED: bool = True
+    UPDATE_TIME_MORNING: str = "10:30"
+    UPDATE_TIME_AFTERNOON: str = "15:15"
+    WEEKLY_CHECK_TIME: str = "18:00"
+
+
+@dataclass
+class DataValidationConfig:
+    """数据验证配置"""
+    MIN_VOLUME: int = 0
+    MAX_PRICE_CHANGE: float = 0.5  # 最大涨跌幅50%
+    MIN_PRICE: float = 0.01  # 最小价格
+    MAX_PRICE: float = 1000.0  # 最大价格
+    AMOUNT_VOLUME_RATIO_MIN: float = 0.1  # 金额与成交量比例最小值
+    AMOUNT_VOLUME_RATIO_MAX: float = 10.0  # 金额与成交量比例最大值
+
+
+@dataclass
 class Settings:
     """
     全局配置聚合
@@ -155,6 +184,9 @@ class Settings:
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
     backtest: BacktestConfig = field(default_factory=BacktestConfig)
     log: LogConfig = field(default_factory=LogConfig)
+    akshare: AKShareConfig = field(default_factory=AKShareConfig)
+    scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
+    validation: DataValidationConfig = field(default_factory=DataValidationConfig)
     
     def __post_init__(self):
         """初始化后处理"""

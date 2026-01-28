@@ -2,7 +2,14 @@
 # 文件: core/updater.py
 # ============================================================================
 """
-数据更新调度器 - 增量/全量更新
+数据更新调度器 - 增量/全量更新（增强版）
+
+功能:
+- 全量更新: 下载全部历史数据
+- 增量更新: 只下载最新数据
+- 两阶段更新：TDX + AKShare 实时补充
+- 自动节点选择
+- 断点续传
 """
 import time
 from datetime import datetime, timedelta
@@ -12,6 +19,7 @@ import pandas as pd
 from .node_scanner import NodeScanner
 from .downloader import StockDownloader
 from .database import StockDatabase
+from .akshare_realtime_supplement import AKShareRealtimeSupplement
 from config import settings
 
 
@@ -22,6 +30,7 @@ class DataUpdater:
     功能:
     - 全量更新: 下载全部历史数据
     - 增量更新: 只下载最新数据
+    - 两阶段增量更新: TDX + AKShare
     - 自动节点选择
     - 断点续传
     
@@ -34,6 +43,9 @@ class DataUpdater:
     
     # 增量更新 (每日调用)
     updater.incremental_update()
+    
+    # 两阶段增量更新 (TDX + AKShare)
+    updater.incremental_update_with_realtime()
     ```
     """
     
@@ -106,14 +118,6 @@ class DataUpdater:
                 f"       ✓ Write completed in {write_time:.1f}s ({len(combined_df) / write_time:,.0f} rows/sec)")
         else:
             written = 0
-
-        # # 4. 写入数据库
-        # self.logger.info("[4/4] Writing to database...")
-        # written = 0
-        # for code, df in results.items():
-        #     if df is not None and not df.empty:
-        #         self.db.upsert(df)
-        #         written += 1
 
         elapsed = time.perf_counter() - t0
         stats = {
@@ -215,6 +219,196 @@ class DataUpdater:
         
         return stats
     
+    def incremental_update_with_realtime(
+        self,
+        progress_callback: callable = None
+    ) -> Dict:
+        """
+        两阶段增量更新：
+        阶段1：TDX增量更新至前一交易日
+        阶段2：AKShare补充当日数据
+        
+        Args:
+            progress_callback: 进度回调函数
+            
+        Returns:
+            更新统计
+        """
+        t0 = time.perf_counter()
+        self.logger.info("=" * 60)
+        self.logger.info("Starting TWO-PHASE incremental update...")
+        
+        # 检查是否为交易日
+        if not self._is_trading_day():
+            self.logger.info("Non-trading day, skipping update")
+            return {'mode': 'two-phase', 'skipped': True, 'reason': 'non_trading_day'}
+        
+        # 阶段1：TDX增量更新至前一交易日
+        self.logger.info("Phase 1: TDX incremental update...")
+        phase1_result = self.incremental_update(progress_callback=progress_callback)
+        
+        # 阶段2：AKShare补充当日数据
+        self.logger.info("Phase 2: AKShare realtime supplement...")
+        try:
+            phase2_result = self._akshare_realtime_update()
+        except Exception as e:
+            self.logger.warning(f"Phase 2 failed: {e}")
+            phase2_result = {'success': False, 'error': str(e)}
+        
+        elapsed = time.perf_counter() - t0
+        
+        # 合并结果
+        combined_stats = {
+            'mode': 'two-phase',
+            'phase1': phase1_result,
+            'phase2': phase2_result,
+            'elapsed_seconds': round(elapsed, 2),
+            'success': phase1_result.get('updated', 0) > 0 or phase2_result.get('success', False)
+        }
+        
+        self.logger.info("=" * 60)
+        self.logger.info(f"Two-phase update completed: {combined_stats}")
+        
+        return combined_stats
+    
+    def _akshare_realtime_update(self) -> Dict:
+        """
+        AKShare 实时数据更新
+        
+        Returns:
+            AKShare 更新结果
+        """
+        try:
+            # 创建 AKShare 补充器
+            akshare_supplement = AKShareRealtimeSupplement(
+                retry_count=settings.akshare.RETRY_COUNT,
+                retry_delay_range=(0.5, 2.0)
+            )
+            
+            # 下载当日数据
+            result = akshare_supplement.download_today_data()
+            
+            # 写入数据库
+            if result['data'] is not None and not result['data'].empty:
+                # 先删除旧的今日数据
+                deleted_rows = self.db.delete_today_data()
+                
+                # 写入新数据
+                written_rows = self.db.bulk_upsert(result['data'])
+                
+                self.logger.info(f"AKShare: deleted {deleted_rows} old records, wrote {written_rows} new records")
+                
+                return {
+                    'success': True,
+                    'deleted': deleted_rows,
+                    'written': written_rows,
+                    'stats': result
+                }
+            else:
+                return {
+                    'success': False,
+                    'error': 'No data downloaded',
+                    'stats': result
+                }
+                
+        except Exception as e:
+            self.logger.error(f"AKShare update failed: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def _is_trading_day(self) -> bool:
+        """
+        判断是否为交易日
+        
+        Returns:
+            是否为交易日
+        """
+        now = datetime.now()
+        
+        # 周末判断
+        if now.weekday() >= 5:  # 周六=5, 周日=6
+            return False
+        
+        # 节假日判断（简化版）
+        # 实际项目中应使用更精确的节假日判断
+        holidays = [
+            (1, 1),   # 元旦
+            (5, 1),   # 劳动节
+            (10, 1),  # 国庆节
+        ]
+        
+        if (now.month, now.day) in holidays:
+            return False
+        
+        return True
+    
+    def _update_last_n_days(self, days: int) -> Dict:
+        """
+        只更新最近N天数据
+        
+        Args:
+            days: 更新最近N天
+            
+        Returns:
+            更新结果
+        """
+        t0 = time.perf_counter()
+        self.logger.info(f"Updating last {days} days...")
+        
+        # 计算日期范围
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=days)
+        
+        # 扫描节点
+        scanner = NodeScanner()
+        top_nodes = scanner.scan_fastest(top_n=3)
+        
+        # 获取需要更新的股票
+        latest_dates = self._get_latest_dates()
+        
+        stocks_to_update = []
+        for code, market, latest in latest_dates:
+            latest_date = datetime.strptime(latest, '%Y-%m-%d').date()
+            if latest_date < start_date:
+                stocks_to_update.append((code, market, latest))
+        
+        self.logger.info(f"Found {len(stocks_to_update)} stocks to update")
+        
+        # 并行下载
+        downloader = StockDownloader(top_nodes)
+        results = downloader.download_all(
+            [stock[0] for stock in stocks_to_update],
+            n_workers=4
+        )
+        
+        # 写入数据库
+        written_count = 0
+        for code, df in results.items():
+            if df is not None and not df.empty:
+                # 过滤最近N天数据
+                df['date'] = pd.to_datetime(df['date']).dt.date
+                df = df[df['date'] >= start_date]
+                
+                if not df.empty:
+                    self.db.upsert(df)
+                    written_count += 1
+        
+        elapsed = time.perf_counter() - t0
+        
+        stats = {
+            'mode': 'last_n_days',
+            'days': days,
+            'stocks_checked': len(stocks_to_update),
+            'stocks_updated': written_count,
+            'elapsed_seconds': round(elapsed, 2)
+        }
+        
+        self.logger.info(f"Last {days} days update completed: {stats}")
+        
+        return stats
+    
     def _get_latest_dates(self) -> List[Tuple[str, int, str]]:
         """获取每只股票的最新日期"""
         with self.db.connect() as conn:
@@ -296,8 +490,8 @@ class ScheduledUpdater:
             self.logger.info("Market not closed yet")
             return {'skipped': True, 'reason': 'market_open'}
         
-        # 执行增量更新
-        return self.updater.incremental_update()
+        # 执行两阶段增量更新
+        return self.updater.incremental_update_with_realtime()
     
     def run_daily(self, hour: int = 18, minute: int = 0) -> None:
         """
