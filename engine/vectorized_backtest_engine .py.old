@@ -1,0 +1,498 @@
+"""
+向量化回测引擎 v2.1 - Bug修复版
+=====================================
+
+修复问题：
+1. 数据库快照获取方式错误
+2. 空DataFrame处理
+3. 日期列缺失
+"""
+
+import time
+import numpy as np
+import pandas as pd
+from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import logging
+
+from core.database import StockDatabase
+from config import settings
+
+
+# ==================== 数据结构 ====================
+@dataclass
+class VectorizedData:
+    """向量化数据容器"""
+    prices: pd.DataFrame      # 价格矩阵 (date × code)
+    volumes: pd.DataFrame     # 成交量矩阵
+    amounts: pd.DataFrame     # 成交额矩阵
+    returns: pd.DataFrame     # 收益率矩阵
+    dates: pd.DatetimeIndex   # 交易日列表
+    codes: List[str]          # 股票代码列表
+    
+    # 辅助数据
+    highs: pd.DataFrame       # 最高价
+    lows: pd.DataFrame        # 最低价
+    opens: pd.DataFrame       # 开盘价
+
+
+@dataclass
+class BacktestConfig:
+    """回测配置"""
+    initial_capital: float = 1_000_000
+    commission_rate: float = 0.0003
+    slippage_rate: float = 0.0005
+    max_position: float = 0.2
+    min_position: float = 0.01
+    rebalance_freq: str = 'W'
+    top_n: int = 10
+
+
+# ==================== [修复] 数据加载部分 ====================
+class VectorizedBacktestEngine:
+    """向量化回测引擎 - 修复版"""
+    
+    def __init__(self, db_path: str = None, config: BacktestConfig = None):
+        self.db_path = db_path or str(settings.path.DB_PATH)
+        self.config = config or BacktestConfig()
+        self.db = StockDatabase(self.db_path)
+        self.logger = logging.getLogger("VectorizedBacktest")
+        
+        self.data: Optional[VectorizedData] = None
+        self.factors: Optional[pd.DataFrame] = None
+        self.signals: Optional[pd.DataFrame] = None
+        
+        self.equity_curve: Optional[pd.Series] = None
+        self.positions_history: Optional[pd.DataFrame] = None
+    
+    def load_data(
+        self,
+        start_date: str,
+        end_date: str,
+        codes: Optional[List[str]] = None,
+        use_parallel: bool = True
+    ) -> None:
+        """
+        并行加载数据（修复版）
+        
+        修复：
+        1. 正确获取股票列表
+        2. 处理空数据情况
+        3. 确保日期列存在
+        """
+        self.logger.info("Loading market data...")
+        t0 = time.perf_counter()
+        
+        # 扩展开始日期
+        extended_start = pd.to_datetime(start_date) - pd.DateOffset(years=1)
+        extended_start_str = extended_start.strftime('%Y-%m-%d')
+        
+        # === 修复：获取股票列表 ===
+        if codes is None:
+            # 方法1: 从数据库统计信息获取
+            stats = self.db.get_stats()
+            
+            if stats['stocks'] == 0:
+                raise ValueError("数据库为空！请先运行 'python menu.py' → 选择 1 初始化数据库")
+            
+            # 方法2: 查询所有唯一股票代码
+            with self.db.connect() as conn:
+                codes_df = conn.execute("""
+                    SELECT DISTINCT code 
+                    FROM daily_bars 
+                    ORDER BY code
+                """).fetchdf()
+                
+                if codes_df.empty:
+                    raise ValueError("数据库中没有股票数据！")
+                
+                codes = codes_df['code'].tolist()
+            
+            self.logger.info(f"  Full market: {len(codes)} stocks")
+        
+        # 并行/串行加载
+        if use_parallel and len(codes) > 50:
+            all_data = self._load_data_parallel(codes, extended_start_str, end_date)
+        else:
+            all_data = self._load_data_serial(codes, extended_start_str, end_date)
+        
+        # === 修复：检查数据是否为空 ===
+        if all_data.empty:
+            raise ValueError(f"未加载到任何数据！请检查日期范围：{extended_start_str} 到 {end_date}")
+        
+        # 转换为矩阵
+        self.data = self._convert_to_matrix(all_data, start_date, end_date)
+        
+        elapsed = time.perf_counter() - t0
+        self.logger.info(f"  Loaded {len(self.data.codes)} stocks, {len(self.data.dates)} days in {elapsed:.1f}s")
+    
+    def _load_data_parallel(
+        self,
+        codes: List[str],
+        start_date: str,
+        end_date: str
+    ) -> pd.DataFrame:
+        """并行加载数据"""
+        self.logger.info(f"  Loading {len(codes)} stocks in parallel...")
+        
+        def load_stock(code: str) -> pd.DataFrame:
+            """加载单只股票"""
+            try:
+                df = self.db.get_stock_history(code, start_date, end_date)
+                if not df.empty:
+                    df['code'] = code
+                    return df
+            except Exception as e:
+                self.logger.debug(f"Failed to load {code}: {e}")
+            return pd.DataFrame()
+        
+        # 使用线程池
+        with ThreadPoolExecutor(max_workers=16) as executor:
+            futures = {executor.submit(load_stock, code): code for code in codes}
+            
+            results = []
+            completed = 0
+            
+            for future in as_completed(futures):
+                df = future.result()
+                if not df.empty:
+                    results.append(df)
+                
+                completed += 1
+                # 每500只显示进度
+                if completed % 500 == 0:
+                    self.logger.info(f"    Loaded {completed}/{len(codes)} stocks...")
+        
+        # 合并
+        if results:
+            combined = pd.concat(results, ignore_index=True)
+            self.logger.info(f"    Successfully loaded {len(results)} stocks")
+            return combined
+        else:
+            return pd.DataFrame()
+    
+    def _load_data_serial(
+        self,
+        codes: List[str],
+        start_date: str,
+        end_date: str
+    ) -> pd.DataFrame:
+        """串行加载数据"""
+        self.logger.info(f"  Loading {len(codes)} stocks (serial mode)...")
+        
+        results = []
+        for i, code in enumerate(codes):
+            try:
+                df = self.db.get_stock_history(code, start_date, end_date)
+                if not df.empty:
+                    df['code'] = code
+                    results.append(df)
+            except:
+                pass
+            
+            # 进度
+            if (i + 1) % 500 == 0:
+                self.logger.info(f"    Loaded {i+1}/{len(codes)} stocks...")
+        
+        if results:
+            return pd.concat(results, ignore_index=True)
+        else:
+            return pd.DataFrame()
+    
+    def _convert_to_matrix(
+        self,
+        df: pd.DataFrame,
+        start_date: str,
+        end_date: str
+    ) -> VectorizedData:
+        """
+        将长格式数据转为矩阵（修复版）
+        
+        修复：
+        1. 检查DataFrame是否为空
+        2. 确保date列存在
+        3. 处理缺失数据
+        """
+        self.logger.info("  Converting to matrix format...")
+        
+        # === 修复：检查空DataFrame ===
+        if df.empty:
+            raise ValueError("数据为空，无法转换为矩阵")
+        
+        # === 修复：检查必需列 ===
+        required_cols = ['code', 'date', 'open', 'high', 'low', 'close', 'vol']
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        
+        if missing_cols:
+            raise ValueError(f"数据缺少必需列: {missing_cols}")
+        
+        # 确保日期格式
+        if 'date' in df.columns:
+            df['date'] = pd.to_datetime(df['date'])
+        else:
+            raise ValueError("DataFrame中没有'date'列！")
+        
+        # 透视表
+        try:
+            prices = df.pivot(index='date', columns='code', values='close')
+            highs = df.pivot(index='date', columns='code', values='high')
+            lows = df.pivot(index='date', columns='code', values='low')
+            opens = df.pivot(index='date', columns='code', values='open')
+            volumes = df.pivot(index='date', columns='code', values='vol')
+            
+            # amount 列可能不存在
+            if 'amount' in df.columns:
+                amounts = df.pivot(index='date', columns='code', values='amount')
+            else:
+                amounts = volumes * prices  # 估算
+        
+        except Exception as e:
+            raise ValueError(f"透视表转换失败: {e}")
+        
+        # 排序并填充缺失值
+        prices = prices.sort_index().fillna(method='ffill').fillna(0)
+        highs = highs.sort_index().fillna(method='ffill').fillna(0)
+        lows = lows.sort_index().fillna(method='ffill').fillna(0)
+        opens = opens.sort_index().fillna(method='ffill').fillna(0)
+        volumes = volumes.sort_index().fillna(0)
+        amounts = amounts.sort_index().fillna(0)
+        
+        # 计算收益率
+        returns = prices.pct_change().fillna(0)
+        
+        # 筛选回测区间
+        mask = (prices.index >= start_date) & (prices.index <= end_date)
+        
+        return VectorizedData(
+            prices=prices[mask],
+            highs=highs[mask],
+            lows=lows[mask],
+            opens=opens[mask],
+            volumes=volumes[mask],
+            amounts=amounts[mask],
+            returns=returns[mask],
+            dates=prices[mask].index,
+            codes=prices.columns.tolist()
+        )
+    
+    # ==================== 其他方法保持不变 ====================
+    # （为了节省空间，这里省略，使用原文件的其他方法）
+    
+    def compute_factors(self, factor_name: str = 'momentum', **kwargs) -> pd.DataFrame:
+        """计算因子"""
+        from engine.vectorized_backtest_engine import VectorizedFactors
+        
+        self.logger.info(f"Computing factor: {factor_name}...")
+        t0 = time.perf_counter()
+        
+        if factor_name == 'momentum':
+            self.factors = VectorizedFactors.momentum(
+                self.data.prices,
+                period=kwargs.get('period', 20)
+            )
+        elif factor_name == 'rsrs':
+            self.factors = VectorizedFactors.rsrs(
+                self.data,
+                window=kwargs.get('window', 18),
+                n=kwargs.get('n', 600)
+            )
+        elif factor_name == 'composite':
+            self.factors = VectorizedFactors.composite_alpha(
+                self.data,
+                config=kwargs
+            )
+        else:
+            raise ValueError(f"Unknown factor: {factor_name}")
+        
+        elapsed = time.perf_counter() - t0
+        self.logger.info(f"  Factor computed in {elapsed:.1f}s")
+        
+        return self.factors
+    
+    def generate_signals(self, method: str = 'topN', **kwargs) -> pd.DataFrame:
+        """生成信号"""
+        from engine.vectorized_backtest_engine import VectorizedBacktestEngine as OriginalEngine
+        
+        # 借用原实现
+        original = OriginalEngine(config=self.config)
+        original.factors = self.factors
+        original.config = self.config
+        original.data = self.data
+        
+        if method == 'topN':
+            self.signals = original._generate_topN_signals(kwargs.get('top_n', self.config.top_n))
+        elif method == 'threshold':
+            self.signals = original._generate_threshold_signals(kwargs.get('threshold', 0.7))
+        elif method == 'long_short':
+            self.signals = original._generate_long_short_signals(kwargs.get('top_n', self.config.top_n))
+        
+        return self.signals
+    
+    def _get_rebalance_dates(self) -> List:
+        """获取调仓日期"""
+        dates = self.data.dates
+        
+        if self.config.rebalance_freq == 'D':
+            return dates.tolist()
+        
+        df = pd.DataFrame({'date': dates})
+        
+        if self.config.rebalance_freq == 'W':
+            df['period'] = df['date'].dt.isocalendar().week
+        elif self.config.rebalance_freq == 'M':
+            df['period'] = df['date'].dt.to_period('M')
+        else:
+            return dates.tolist()
+        
+        last_dates = df.groupby('period')['date'].last()
+        return last_dates.tolist()
+    
+    def run_backtest(self) -> Dict:
+        """运行回测"""
+        self.logger.info("Running backtest...")
+        t0 = time.perf_counter()
+        
+        # 计算每日持仓收益
+        portfolio_returns = (self.signals.shift(1) * self.data.returns).sum(axis=1)
+        
+        # 交易成本
+        turnover = self.signals.diff().abs().sum(axis=1)
+        transaction_costs = turnover * (self.config.commission_rate + self.config.slippage_rate)
+        
+        # 净收益
+        net_returns = portfolio_returns - transaction_costs
+        
+        # 权益曲线
+        self.equity_curve = self.config.initial_capital * (1 + net_returns).cumprod()
+        
+        # 持仓历史
+        self.positions_history = self.signals.copy()
+        
+        elapsed = time.perf_counter() - t0
+        self.logger.info(f"  Backtest completed in {elapsed:.1f}s")
+        
+        # 计算绩效指标
+        results = self._calculate_metrics(net_returns)
+        
+        return results
+    
+    def _calculate_metrics(self, returns: pd.Series) -> Dict:
+        """计算绩效指标"""
+        total_return = (self.equity_curve.iloc[-1] / self.config.initial_capital - 1)
+        
+        n_days = len(returns)
+        annual_return = (1 + total_return) ** (252 / n_days) - 1
+        
+        annual_vol = returns.std() * np.sqrt(252)
+        
+        sharpe = annual_return / annual_vol if annual_vol > 0 else 0
+        
+        cummax = self.equity_curve.cummax()
+        drawdown = (self.equity_curve - cummax) / cummax
+        max_drawdown = drawdown.min()
+        
+        win_rate = (returns > 0).mean()
+        
+        calmar = annual_return / abs(max_drawdown) if max_drawdown != 0 else 0
+        
+        return {
+            'total_return': total_return,
+            'annual_return': annual_return,
+            'annual_volatility': annual_vol,
+            'sharpe_ratio': sharpe,
+            'max_drawdown': max_drawdown,
+            'win_rate': win_rate,
+            'calmar_ratio': calmar,
+            'n_trades': (self.signals.diff() != 0).sum().sum() / 2,
+        }
+    
+    def print_results(self, results: Dict) -> None:
+        """打印结果"""
+        print("\n" + "=" * 70)
+        print("                      回测结果")
+        print("=" * 70)
+        print(f"总收益率:         {results['total_return']:>10.2%}")
+        print(f"年化收益率:       {results['annual_return']:>10.2%}")
+        print(f"年化波动率:       {results['annual_volatility']:>10.2%}")
+        print(f"夏普比率:         {results['sharpe_ratio']:>10.2f}")
+        print(f"最大回撤:         {results['max_drawdown']:>10.2%}")
+        print(f"Calmar比率:       {results['calmar_ratio']:>10.2f}")
+        print(f"胜率:             {results['win_rate']:>10.1%}")
+        print(f"交易次数:         {results['n_trades']:>10.0f}")
+        print("=" * 70)
+    
+    def plot_equity_curve(self, save_path: str = None):
+        """绘制权益曲线"""
+        try:
+            import matplotlib.pyplot as plt
+            
+            plt.figure(figsize=(12, 6))
+            plt.plot(self.equity_curve.index, self.equity_curve.values)
+            plt.title('Equity Curve')
+            plt.xlabel('Date')
+            plt.ylabel('Portfolio Value')
+            plt.grid(True)
+            
+            if save_path:
+                plt.savefig(save_path)
+                self.logger.info(f"  Equity curve saved to {save_path}")
+            else:
+                plt.show()
+        except ImportError:
+            self.logger.warning("matplotlib not installed, cannot plot")
+
+
+# ==================== 快速接口 ====================
+def quick_backtest(
+    start_date: str,
+    end_date: str,
+    factor: str = 'momentum',
+    top_n: int = 10,
+    rebalance_freq: str = 'W',
+    initial_capital: float = 1_000_000
+) -> Dict:
+    """一键回测"""
+    config = BacktestConfig(
+        initial_capital=initial_capital,
+        rebalance_freq=rebalance_freq,
+        top_n=top_n
+    )
+    
+    engine = VectorizedBacktestEngine(config=config)
+    
+    engine.load_data(start_date, end_date)
+    
+    engine.compute_factors(factor)
+    
+    engine.generate_signals(method='topN', top_n=top_n)
+    
+    results = engine.run_backtest()
+    
+    engine.print_results(results)
+    
+    return results
+
+
+if __name__ == "__main__":
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    
+    print("=" * 70)
+    print("向量化回测引擎 v2.1 - Bug修复版测试")
+    print("=" * 70)
+    
+    try:
+        results = quick_backtest(
+            start_date='2023-01-01',
+            end_date='2023-12-31',
+            factor='momentum',
+            top_n=10
+        )
+        
+        print("\n✓ 测试成功！")
+    
+    except Exception as e:
+        print(f"\n✗ 测试失败: {e}")
+        import traceback
+        traceback.print_exc()

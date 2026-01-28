@@ -1,0 +1,341 @@
+2026-01-27 10:21:01 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 10:21:01 [DataUpdater] INFO: ============================================================
+2026-01-27 10:21:01 [DataUpdater] INFO: Starting FULL update...
+2026-01-27 10:21:01 [DataUpdater] INFO: [1/4] Scanning TDX nodes...
+2026-01-27 10:21:04 [DataUpdater] INFO:        Best nodes: ['南京双线']
+2026-01-27 10:21:04 [DataUpdater] INFO: [2/4] Fetching stock list...
+2026-01-27 10:21:13 [DataUpdater] INFO:        Found 5189 stocks
+2026-01-27 10:21:13 [DataUpdater] INFO: [3/4] Downloading daily bars...
+2026-01-27 10:26:37 [DataUpdater] INFO: [4/4] Writing to database...
+2026-01-27 10:30:02 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 10:30:02 [DataUpdater] INFO: ============================================================
+2026-01-27 10:30:02 [DataUpdater] INFO: Starting FULL update...
+2026-01-27 10:30:02 [DataUpdater] INFO: [1/4] Scanning TDX nodes...
+2026-01-27 10:30:05 [DataUpdater] INFO:        Best nodes: ['南京双线']
+2026-01-27 10:30:05 [DataUpdater] INFO: [2/4] Fetching stock list...
+2026-01-27 10:30:11 [DataUpdater] INFO:        Found 5189 stocks
+2026-01-27 10:30:11 [DataUpdater] INFO: [3/4] Downloading daily bars...
+2026-01-27 10:35:55 [DataUpdater] INFO: [4/4] Writing to database...
+2026-01-27 10:46:29 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 10:46:29 [DataUpdater] INFO: ============================================================
+2026-01-27 10:46:29 [DataUpdater] INFO: Starting FULL update...
+2026-01-27 10:46:29 [DataUpdater] INFO: [1/4] Scanning TDX nodes...
+2026-01-27 10:46:32 [DataUpdater] INFO:        Best nodes: ['南京双线']
+2026-01-27 10:46:32 [DataUpdater] INFO: [2/4] Fetching stock list...
+2026-01-27 10:46:41 [DataUpdater] INFO:        Found 5189 stocks
+2026-01-27 10:46:41 [DataUpdater] INFO: [3/4] Downloading daily bars...
+2026-01-27 10:52:25 [DataUpdater] INFO: [4/4] Writing to database...
+2026-01-27 11:06:09 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 11:06:09 [DataUpdater] INFO: ============================================================
+2026-01-27 11:06:09 [DataUpdater] INFO: Starting FULL update...
+2026-01-27 11:06:09 [DataUpdater] INFO: [1/4] Scanning TDX nodes...
+2026-01-27 11:06:12 [DataUpdater] INFO:        Best nodes: ['南京双线']
+2026-01-27 11:06:12 [DataUpdater] INFO: [2/4] Fetching stock list...
+2026-01-27 11:06:21 [DataUpdater] INFO:        Found 5189 stocks
+2026-01-27 11:06:21 [DataUpdater] INFO: [3/4] Downloading daily bars...
+2026-01-27 11:12:11 [DataUpdater] INFO: [4/4] Writing to database...
+2026-01-27 11:12:11 [DataUpdater] INFO:        Merging 5183 stocks into single DataFrame...
+2026-01-27 11:24:12 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 11:24:12 [DataUpdater] INFO: ============================================================
+2026-01-27 11:24:12 [DataUpdater] INFO: Starting FULL update...
+2026-01-27 11:24:12 [DataUpdater] INFO: [1/4] Scanning TDX nodes...
+2026-01-27 11:24:15 [DataUpdater] INFO:        Best nodes: ['南京双线']
+2026-01-27 11:24:15 [DataUpdater] INFO: [2/4] Fetching stock list...
+2026-01-27 11:24:24 [DataUpdater] INFO:        Found 5189 stocks
+2026-01-27 11:24:24 [DataUpdater] INFO: [3/4] Downloading daily bars...
+2026-01-27 11:29:41 [DataUpdater] INFO: [4/4] Writing to database...
+2026-01-27 11:29:41 [DataUpdater] INFO:        Merging 5183 stocks into single DataFrame...
+2026-01-27 11:29:42 [DataUpdater] INFO:        Writing 9,944,269 rows to database...
+2026-01-27 11:30:19 [DataUpdater] INFO:        ✓ Write completed in 38.2s (260,174 rows/sec)
+2026-01-27 11:30:19 [DataUpdater] INFO: ============================================================
+2026-01-27 11:30:19 [DataUpdater] INFO: Full update completed: {'mode': 'full', 'total_stocks': 5189, 'downloaded': 5183, 'written': 5183, 'elapsed_seconds': 367.13}
+2026-01-27 11:30:41 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 11:30:42 [DataUpdater] INFO: ============================================================
+2026-01-27 11:30:42 [DataUpdater] INFO: Starting INCREMENTAL update...
+2026-01-27 11:30:42 [DataUpdater] INFO: Database: 5183 stocks, latest=2026-01-27
+2026-01-27 11:30:45 [DataUpdater] INFO: Stocks to update: 0
+2026-01-27 11:30:45 [DataUpdater] INFO: Already up to date!
+2026-01-27 11:32:54 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 11:36:22 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 11:36:23 [strategy.registry] INFO: Registered strategy: rsrs
+2026-01-27 11:36:23 [strategy.registry] INFO: Registered strategy: momentum
+2026-01-27 11:36:23 [BacktestEngine] INFO: Added strategy: rsrs
+2026-01-27 11:36:23 [BacktestEngine] INFO: Starting backtest: 2020-01-01 to 2023-12-31
+2026-01-27 11:36:23 [BacktestEngine] INFO: Strategies: ['rsrs']
+2026-01-27 11:36:23 [BacktestEngine] INFO: Loading market data...
+2026-01-27 11:36:23 [BacktestEngine] INFO: Loaded 0 stocks, 0 trading days
+2026-01-27 11:36:23 [BacktestEngine] INFO: Initializing strategies and computing factors...
+2026-01-27 11:36:23 [Strategy.rsrs] INFO: Strategy 'rsrs' initialized with params: {'top_n': 30, 'entry_threshold': 0.7, 'exit_threshold': -0.5, 'r2_threshold': 0.8, 'use_volume_filter': True, 'use_chandelier_stop': True}
+2026-01-27 11:36:56 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 11:36:56 [strategy.registry] INFO: Registered strategy: rsrs
+2026-01-27 11:36:56 [strategy.registry] INFO: Registered strategy: momentum
+2026-01-27 11:36:56 [BacktestEngine] INFO: Added strategy: momentum
+2026-01-27 11:36:56 [BacktestEngine] INFO: Starting backtest: 2020-01-01 to 2023-12-31
+2026-01-27 11:36:56 [BacktestEngine] INFO: Strategies: ['momentum']
+2026-01-27 11:36:56 [BacktestEngine] INFO: Loading market data...
+2026-01-27 11:36:56 [BacktestEngine] INFO: Loaded 0 stocks, 0 trading days
+2026-01-27 11:36:56 [BacktestEngine] INFO: Initializing strategies and computing factors...
+2026-01-27 11:36:56 [Strategy.momentum] INFO: Strategy 'momentum' initialized with params: {'lookback': 20, 'top_n': 20, 'min_momentum': 0.05, 'max_volatility': 0.5, 'use_volatility_weight': True}
+2026-01-27 11:42:05 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 11:42:05 [strategy.registry] INFO: Registered strategy: rsrs
+2026-01-27 11:42:05 [strategy.registry] INFO: Registered strategy: momentum
+2026-01-27 11:42:05 [BacktestEngine] INFO: Added strategy: rsrs
+2026-01-27 11:42:05 [BacktestEngine] INFO: Starting backtest: 2020-01-01 to 2023-12-31
+2026-01-27 11:42:05 [BacktestEngine] INFO: Strategies: ['rsrs']
+2026-01-27 11:42:05 [BacktestEngine] INFO: Loading market data...
+2026-01-27 11:42:05 [BacktestEngine] INFO: Loaded 0 stocks, 0 trading days
+2026-01-27 11:42:05 [BacktestEngine] INFO: Initializing strategies and computing factors...
+2026-01-27 11:42:05 [Strategy.rsrs] INFO: Strategy 'rsrs' initialized with params: {'top_n': 30, 'entry_threshold': 0.7, 'exit_threshold': -0.5, 'r2_threshold': 0.8, 'use_volume_filter': True, 'use_chandelier_stop': True}
+2026-01-27 11:42:12 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 11:42:13 [strategy.registry] INFO: Registered strategy: rsrs
+2026-01-27 11:42:13 [strategy.registry] INFO: Registered strategy: momentum
+2026-01-27 11:42:13 [BacktestEngine] INFO: Added strategy: momentum
+2026-01-27 11:42:13 [BacktestEngine] INFO: Starting backtest: 2020-01-01 to 2023-12-31
+2026-01-27 11:42:13 [BacktestEngine] INFO: Strategies: ['momentum']
+2026-01-27 11:42:13 [BacktestEngine] INFO: Loading market data...
+2026-01-27 11:42:13 [BacktestEngine] INFO: Loaded 0 stocks, 0 trading days
+2026-01-27 11:42:13 [BacktestEngine] INFO: Initializing strategies and computing factors...
+2026-01-27 11:42:13 [Strategy.momentum] INFO: Strategy 'momentum' initialized with params: {'lookback': 20, 'top_n': 20, 'min_momentum': 0.05, 'max_volatility': 0.5, 'use_volatility_weight': True}
+2026-01-27 13:35:50 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 13:36:11 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 13:37:27 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 13:37:28 [strategy.registry] INFO: Registered strategy: rsrs
+2026-01-27 13:37:28 [strategy.registry] INFO: Registered strategy: momentum
+2026-01-27 13:37:28 [BacktestEngine] INFO: Added strategy: rsrs
+2026-01-27 13:37:28 [BacktestEngine] INFO: Starting backtest: 2020-01-01 to 2023-12-31
+2026-01-27 13:37:28 [BacktestEngine] INFO: Strategies: ['rsrs']
+2026-01-27 13:37:28 [BacktestEngine] INFO: Loading market data...
+2026-01-27 13:37:28 [BacktestEngine] INFO: Loaded 0 stocks, 0 trading days
+2026-01-27 13:37:28 [BacktestEngine] INFO: Initializing strategies and computing factors...
+2026-01-27 13:37:28 [Strategy.rsrs] INFO: Strategy 'rsrs' initialized with params: {'top_n': 30, 'entry_threshold': 0.7, 'exit_threshold': -0.5, 'r2_threshold': 0.8, 'use_volume_filter': True, 'use_chandelier_stop': True}
+2026-01-27 13:37:34 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 13:37:35 [strategy.registry] INFO: Registered strategy: rsrs
+2026-01-27 13:37:35 [strategy.registry] INFO: Registered strategy: momentum
+2026-01-27 13:37:35 [BacktestEngine] INFO: Added strategy: momentum
+2026-01-27 13:37:35 [BacktestEngine] INFO: Starting backtest: 2020-01-01 to 2023-12-31
+2026-01-27 13:37:35 [BacktestEngine] INFO: Strategies: ['momentum']
+2026-01-27 13:37:35 [BacktestEngine] INFO: Loading market data...
+2026-01-27 13:37:35 [BacktestEngine] INFO: Loaded 0 stocks, 0 trading days
+2026-01-27 13:37:35 [BacktestEngine] INFO: Initializing strategies and computing factors...
+2026-01-27 13:37:35 [Strategy.momentum] INFO: Strategy 'momentum' initialized with params: {'lookback': 20, 'top_n': 20, 'min_momentum': 0.05, 'max_volatility': 0.5, 'use_volatility_weight': True}
+2026-01-27 13:37:57 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 13:38:13 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 14:01:14 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 14:01:16 [MarketScanner] INFO: Scanning market for 2026-01-27
+2026-01-27 14:01:16 [MarketScanner] INFO: [1/4] Loading data...
+2026-01-27 14:01:16 [MarketScanner] INFO:        Loaded 0 stocks
+2026-01-27 14:01:16 [MarketScanner] INFO: [2/4] Computing factors...
+2026-01-27 14:01:16 [MarketScanner] INFO:        Computed 0 valid stocks
+2026-01-27 14:01:16 [MarketScanner] INFO: [3/4] Filtering and scoring...
+2026-01-27 14:01:16 [MarketScanner] INFO:        Qualified 0 stocks
+2026-01-27 14:01:16 [MarketScanner] INFO: [4/4] Generating output...
+2026-01-27 14:01:16 [MarketScanner] INFO: Scan completed in 1.02s (0 stocks/sec)
+2026-01-27 14:01:30 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 14:11:14 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 14:11:15 [strategy.registry] INFO: Registered strategy: rsrs
+2026-01-27 14:11:15 [strategy.registry] INFO: Registered strategy: momentum
+2026-01-27 14:11:15 [strategy.registry] INFO: Registered strategy: short_term_rsrs
+2026-01-27 14:11:15 [BacktestEngine] INFO: Added strategy: rsrs
+2026-01-27 14:11:15 [BacktestEngine] INFO: Starting backtest: 2020-01-01 to 2023-12-31
+2026-01-27 14:11:15 [BacktestEngine] INFO: Strategies: ['rsrs']
+2026-01-27 14:11:15 [BacktestEngine] INFO: Loading market data...
+2026-01-27 14:18:53 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 14:18:54 [strategy.registry] INFO: Registered strategy: rsrs
+2026-01-27 14:18:54 [strategy.registry] INFO: Registered strategy: momentum
+2026-01-27 14:18:54 [strategy.registry] INFO: Registered strategy: short_term_rsrs
+2026-01-27 14:18:54 [BacktestEngine] INFO: Added strategy: momentum
+2026-01-27 14:18:55 [BacktestEngine] INFO: Starting backtest: 2020-01-01 to 2023-12-31
+2026-01-27 14:18:55 [BacktestEngine] INFO: Strategies: ['momentum']
+2026-01-27 14:18:55 [BacktestEngine] INFO: Loading market data...
+2026-01-27 14:43:56 [BacktestEngine] INFO: Loaded 5014 stocks, 970 trading days
+2026-01-27 14:43:56 [BacktestEngine] INFO: Initializing strategies and computing factors...
+2026-01-27 14:43:56 [Strategy.momentum] INFO: Strategy 'momentum' initialized with params: {'lookback': 20, 'top_n': 20, 'min_momentum': 0.05, 'max_volatility': 0.5, 'use_volatility_weight': True}
+2026-01-27 14:44:10 [Strategy.momentum] INFO: Computed momentum factors for 5014 stocks
+2026-01-27 14:44:10 [BacktestEngine] INFO:   momentum: computed 3 factors
+2026-01-27 14:44:10 [BacktestEngine] INFO: Running 970 trading days...
+2026-01-27 14:44:22 [MatchEngine] WARNING: [REJECT] 300087 BUY: 涨停封板，无法买入
+2026-01-27 14:44:22 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00000003 BUY 300087 qty=3400 @ 11.17 [REJECTED]) | Reason: 涨停封板，无法买入
+2026-01-27 14:44:49 [MatchEngine] WARNING: [REJECT] 002510 SELL: 跌停封板，无法卖出
+2026-01-27 14:44:49 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00000027 SELL 002510 qty=9300 @ 5.91 [REJECTED]) | Reason: 跌停封板，无法卖出
+2026-01-27 14:45:35 [MatchEngine] WARNING: [REJECT] 002715 SELL: 跌停封板，无法卖出
+2026-01-27 14:45:35 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00000069 SELL 002715 qty=2200 @ 21.49 [REJECTED]) | Reason: 跌停封板，无法卖出
+2026-01-27 14:45:35 [MatchEngine] WARNING: [REJECT] 601999 BUY: 涨停封板，无法买入
+2026-01-27 14:45:35 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00000083 BUY 601999 qty=100 @ 7.68 [REJECTED]) | Reason: 涨停封板，无法买入
+2026-01-27 14:47:17 [MatchEngine] WARNING: [REJECT] 300353 SELL: 跌停封板，无法卖出
+2026-01-27 14:47:17 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00000151 SELL 300353 qty=3300 @ 13.46 [REJECTED]) | Reason: 跌停封板，无法卖出
+2026-01-27 14:49:22 [MatchEngine] WARNING: [REJECT] 603557 SELL: 跌停封板，无法卖出
+2026-01-27 14:49:22 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00000247 SELL 603557 qty=4100 @ 9.07 [REJECTED]) | Reason: 跌停封板，无法卖出
+2026-01-27 14:49:43 [MatchEngine] WARNING: [REJECT] 600250 SELL: 跌停封板，无法卖出
+2026-01-27 14:49:43 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00000267 SELL 600250 qty=5600 @ 6.75 [REJECTED]) | Reason: 跌停封板，无法卖出
+2026-01-27 14:50:54 [MatchEngine] WARNING: [REJECT] 002968 SELL: 跌停封板，无法卖出
+2026-01-27 14:50:54 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00000333 SELL 002968 qty=600 @ 56.29 [REJECTED]) | Reason: 跌停封板，无法卖出
+2026-01-27 14:50:54 [MatchEngine] WARNING: [REJECT] 603709 SELL: 跌停封板，无法卖出
+2026-01-27 14:50:54 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00000336 SELL 603709 qty=1500 @ 35.55 [REJECTED]) | Reason: 跌停封板，无法卖出
+2026-01-27 14:50:54 [MatchEngine] WARNING: [REJECT] 002920 BUY: 涨停封板，无法买入
+2026-01-27 14:50:54 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00000350 BUY 002920 qty=1200 @ 41.03 [REJECTED]) | Reason: 涨停封板，无法买入
+2026-01-27 14:52:51 [MatchEngine] WARNING: [REJECT] 603392 BUY: 涨停封板，无法买入
+2026-01-27 14:52:51 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00000453 BUY 603392 qty=1000 @ 124.18 [REJECTED]) | Reason: 涨停封板，无法买入
+2026-01-27 14:52:51 [MatchEngine] WARNING: [REJECT] 600960 BUY: 涨停封板，无法买入
+2026-01-27 14:52:51 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00000457 BUY 600960 qty=11500 @ 3.83 [REJECTED]) | Reason: 涨停封板，无法买入
+2026-01-27 14:53:59 [MatchEngine] WARNING: [REJECT] 000931 BUY: 涨停封板，无法买入
+2026-01-27 14:53:59 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00000517 BUY 000931 qty=4300 @ 12.36 [REJECTED]) | Reason: 涨停封板，无法买入
+2026-01-27 14:53:59 [MatchEngine] WARNING: [REJECT] 300687 BUY: 涨停封板，无法买入
+2026-01-27 14:53:59 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00000526 BUY 300687 qty=2400 @ 23.38 [REJECTED]) | Reason: 涨停封板，无法买入
+2026-01-27 14:54:30 [MatchEngine] WARNING: [REJECT] 000166 BUY: 涨停封板，无法买入
+2026-01-27 14:54:30 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00000549 BUY 000166 qty=100 @ 5.94 [REJECTED]) | Reason: 涨停封板，无法买入
+2026-01-27 14:54:55 [MatchEngine] WARNING: [REJECT] 002324 BUY: 涨停封板，无法买入
+2026-01-27 14:54:55 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00000561 BUY 002324 qty=3000 @ 19.66 [REJECTED]) | Reason: 涨停封板，无法买入
+2026-01-27 14:57:34 [MatchEngine] WARNING: [REJECT] 000722 BUY: 涨停封板，无法买入
+2026-01-27 14:57:34 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00000696 BUY 000722 qty=100 @ 8.33 [REJECTED]) | Reason: 涨停封板，无法买入
+2026-01-27 14:58:25 [MatchEngine] WARNING: [REJECT] 603885 BUY: 涨停封板，无法买入
+2026-01-27 14:58:25 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00000741 BUY 603885 qty=200 @ 12.58 [REJECTED]) | Reason: 涨停封板，无法买入
+2026-01-27 15:02:18 [MatchEngine] WARNING: [REJECT] 300747 BUY: 涨停封板，无法买入
+2026-01-27 15:02:18 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00000926 BUY 300747 qty=600 @ 88.65 [REJECTED]) | Reason: 涨停封板，无法买入
+2026-01-27 15:07:14 [MatchEngine] WARNING: [REJECT] 600970 BUY: 涨停封板，无法买入
+2026-01-27 15:07:14 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00001155 BUY 600970 qty=7900 @ 8.64 [REJECTED]) | Reason: 涨停封板，无法买入
+2026-01-27 15:10:29 [MatchEngine] WARNING: [REJECT] 000516 BUY: 涨停封板，无法买入
+2026-01-27 15:10:29 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00001322 BUY 000516 qty=5800 @ 12.91 [REJECTED]) | Reason: 涨停封板，无法买入
+2026-01-27 15:10:29 [MatchEngine] WARNING: [REJECT] 002060 BUY: 涨停封板，无法买入
+2026-01-27 15:10:29 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00001326 BUY 002060 qty=20400 @ 3.72 [REJECTED]) | Reason: 涨停封板，无法买入
+2026-01-27 15:11:15 [MatchEngine] WARNING: [REJECT] 600735 BUY: 涨停封板，无法买入
+2026-01-27 15:11:15 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00001370 BUY 600735 qty=13700 @ 6.16 [REJECTED]) | Reason: 涨停封板，无法买入
+2026-01-27 15:12:34 [MatchEngine] WARNING: [REJECT] 000650 BUY: 涨停封板，无法买入
+2026-01-27 15:12:34 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00001424 BUY 000650 qty=9800 @ 9.11 [REJECTED]) | Reason: 涨停封板，无法买入
+2026-01-27 15:12:46 [MatchEngine] WARNING: [REJECT] 688516 SELL: 跌停封板，无法卖出
+2026-01-27 15:12:46 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00001436 SELL 688516 qty=1000 @ 75.19 [REJECTED]) | Reason: 跌停封板，无法卖出
+2026-01-27 15:13:11 [MatchEngine] WARNING: [REJECT] 300009 SELL: 跌停封板，无法卖出
+2026-01-27 15:13:11 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00001456 SELL 300009 qty=100 @ 17.84 [REJECTED]) | Reason: 跌停封板，无法卖出
+2026-01-27 15:13:37 [MatchEngine] WARNING: [REJECT] 300009 SELL: 跌停封板，无法卖出
+2026-01-27 15:13:37 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00001473 SELL 300009 qty=100 @ 16.25 [REJECTED]) | Reason: 跌停封板，无法卖出
+2026-01-27 15:14:29 [MatchEngine] WARNING: [REJECT] 002247 BUY: 涨停封板，无法买入
+2026-01-27 15:14:29 [Strategy.momentum] WARNING: Order rejected: Order(ORD-00001532 BUY 002247 qty=37600 @ 2.68 [REJECTED]) | Reason: 涨停封板，无法买入
+2026-01-27 15:16:31 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 15:16:32 [DataUpdater] INFO: ============================================================
+2026-01-27 15:16:32 [DataUpdater] INFO: Starting INCREMENTAL update...
+2026-01-27 15:16:32 [DataUpdater] INFO: Database: 5183 stocks, latest=2026-01-27
+2026-01-27 15:16:35 [DataUpdater] INFO: Stocks to update: 0
+2026-01-27 15:16:35 [DataUpdater] INFO: Already up to date!
+2026-01-27 15:17:23 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 15:17:24 [strategy.registry] INFO: Registered strategy: rsrs
+2026-01-27 15:17:24 [strategy.registry] INFO: Registered strategy: momentum
+2026-01-27 15:17:24 [strategy.registry] INFO: Registered strategy: short_term_rsrs
+2026-01-27 15:17:24 [strategy.registry] INFO: Registered strategy: alpha_hunter_v2
+2026-01-27 15:17:24 [BacktestEngine] INFO: Added strategy: rsrs
+2026-01-27 15:17:25 [BacktestEngine] INFO: Starting backtest: 2020-01-01 to 2020-01-05
+2026-01-27 15:17:25 [BacktestEngine] INFO: Strategies: ['rsrs']
+2026-01-27 15:17:25 [BacktestEngine] INFO: Loading market data...
+2026-01-27 15:23:14 [BacktestEngine] INFO: Loaded 3555 stocks, 2 trading days
+2026-01-27 15:23:14 [BacktestEngine] INFO: Initializing strategies and computing factors...
+2026-01-27 15:23:14 [Strategy.rsrs] INFO: Strategy 'rsrs' initialized with params: {'top_n': 30, 'entry_threshold': 0.7, 'exit_threshold': -0.5, 'r2_threshold': 0.8, 'use_volume_filter': True, 'use_chandelier_stop': True}
+2026-01-27 15:23:43 [Strategy.rsrs] INFO: Computed 6 factors for 3555 stocks
+2026-01-27 15:23:43 [BacktestEngine] INFO:   rsrs: computed 6 factors
+2026-01-27 15:23:43 [BacktestEngine] INFO: Running 2 trading days...
+2026-01-27 15:51:21 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 15:51:21 [DataUpdater] INFO: ============================================================
+2026-01-27 15:51:21 [DataUpdater] INFO: Starting FULL update...
+2026-01-27 15:51:21 [DataUpdater] INFO: [1/4] Scanning TDX nodes...
+2026-01-27 15:51:24 [DataUpdater] INFO:        Best nodes: ['南京双线']
+2026-01-27 15:51:24 [DataUpdater] INFO: [2/4] Fetching stock list...
+2026-01-27 15:51:32 [DataUpdater] INFO:        Found 5189 stocks
+2026-01-27 15:51:32 [DataUpdater] INFO: [3/4] Downloading daily bars...
+2026-01-27 16:08:20 [DataUpdater] INFO: [4/4] Writing to database...
+2026-01-27 16:08:20 [DataUpdater] INFO:        Merging 5134 stocks into single DataFrame...
+2026-01-27 16:08:21 [DataUpdater] INFO:        Writing 9,842,235 rows to database...
+2026-01-27 16:24:26 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 16:24:26 [DataUpdater] INFO: ============================================================
+2026-01-27 16:24:26 [DataUpdater] INFO: Starting FULL update...
+2026-01-27 16:24:26 [DataUpdater] INFO: [1/4] Scanning TDX nodes...
+2026-01-27 16:24:29 [DataUpdater] INFO:        Best nodes: ['南京双线']
+2026-01-27 16:24:29 [DataUpdater] INFO: [2/4] Fetching stock list...
+2026-01-27 16:24:38 [DataUpdater] INFO:        Found 5189 stocks
+2026-01-27 16:24:38 [DataUpdater] INFO: [3/4] Downloading daily bars...
+2026-01-27 16:29:22 [DataUpdater] INFO: [4/4] Writing to database...
+2026-01-27 16:29:22 [DataUpdater] INFO:        Merging 5183 stocks into single DataFrame...
+2026-01-27 16:29:22 [DataUpdater] INFO:        Writing 9,944,269 rows to database...
+2026-01-27 16:40:32 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 16:40:32 [DataUpdater] INFO: ============================================================
+2026-01-27 16:40:32 [DataUpdater] INFO: Starting FULL update...
+2026-01-27 16:40:32 [DataUpdater] INFO: [1/4] Scanning TDX nodes...
+2026-01-27 16:40:35 [DataUpdater] INFO:        Best nodes: ['南京双线']
+2026-01-27 16:40:35 [DataUpdater] INFO: [2/4] Fetching stock list...
+2026-01-27 16:40:43 [DataUpdater] INFO:        Found 5189 stocks
+2026-01-27 16:40:43 [DataUpdater] INFO: [3/4] Downloading daily bars...
+2026-01-27 16:45:32 [DataUpdater] INFO: [4/4] Writing to database...
+2026-01-27 16:45:32 [DataUpdater] INFO:        Merging 5183 stocks into single DataFrame...
+2026-01-27 16:45:33 [DataUpdater] INFO:        Writing 9,944,269 rows to database...
+2026-01-27 16:46:14 [DataUpdater] INFO:        ✓ Write completed in 42.1s (236,435 rows/sec)
+2026-01-27 16:46:14 [DataUpdater] INFO: ============================================================
+2026-01-27 16:46:14 [DataUpdater] INFO: Full update completed: {'mode': 'full', 'total_stocks': 5189, 'downloaded': 5183, 'written': 5183, 'elapsed_seconds': 341.98}
+2026-01-27 16:48:39 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 16:48:40 [strategy.registry] INFO: Registered strategy: rsrs
+2026-01-27 16:48:40 [strategy.registry] INFO: Registered strategy: momentum
+2026-01-27 16:48:40 [strategy.registry] INFO: Registered strategy: short_term_rsrs
+2026-01-27 16:48:40 [strategy.registry] INFO: Registered strategy: alpha_hunter_v2
+2026-01-27 16:48:41 [BacktestEngine] INFO: Added strategy: rsrs
+2026-01-27 16:48:41 [BacktestEngine] INFO: Starting backtest: 2020-01-01 to 2020-01-30
+2026-01-27 16:48:41 [BacktestEngine] INFO: Strategies: ['rsrs']
+2026-01-27 16:48:41 [BacktestEngine] INFO: Loading market data...
+2026-01-27 17:11:23 [numexpr.utils] INFO: NumExpr defaulting to 8 threads.
+2026-01-27 17:11:24 [strategy.registry] INFO: Registered strategy: rsrs
+2026-01-27 17:11:24 [strategy.registry] INFO: Registered strategy: momentum
+2026-01-27 17:11:24 [strategy.registry] INFO: Registered strategy: short_term_rsrs
+2026-01-27 17:11:24 [strategy.registry] INFO: Registered strategy: alpha_hunter_v2
+2026-01-27 17:11:24 [BacktestEngine] INFO: Added strategy: rsrs
+2026-01-27 17:11:24 [BacktestEngine] INFO: Starting backtest: 2020-01-01 to 2020-01-31
+2026-01-27 17:11:24 [BacktestEngine] INFO: Strategies: ['rsrs']
+2026-01-27 17:11:24 [BacktestEngine] INFO: Loading market data...
+2026-01-27 17:17:31 [BacktestEngine] INFO: Loaded 3571 stocks, 16 trading days
+2026-01-27 17:17:31 [BacktestEngine] INFO: Initializing strategies and computing factors...
+2026-01-27 17:17:31 [Strategy.rsrs] INFO: Strategy 'rsrs' initialized with params: {'top_n': 30, 'entry_threshold': 0.7, 'exit_threshold': -0.5, 'r2_threshold': 0.8, 'use_volume_filter': True, 'use_chandelier_stop': True}
+2026-01-27 17:18:01 [Strategy.rsrs] INFO: Computed 6 factors for 3571 stocks
+2026-01-27 17:18:01 [BacktestEngine] INFO:   rsrs: computed 6 factors
+2026-01-27 17:18:01 [BacktestEngine] INFO: Running 16 trading days...
+2026-01-27 17:18:42 [MatchEngine] WARNING: [REJECT] 600455 SELL: 跌停封板，无法卖出
+2026-01-27 17:18:42 [Strategy.rsrs] WARNING: Order rejected: Order(ORD-00000041 SELL 600455 qty=800 @ 43.36 [REJECTED]) | Reason: 跌停封板，无法卖出
+2026-01-27 17:19:24 [MatchEngine] WARNING: [REJECT] 300598 SELL: 跌停封板，无法卖出
+2026-01-27 17:19:24 [Strategy.rsrs] WARNING: Order rejected: Order(ORD-00000107 SELL 300598 qty=100 @ 202.39 [REJECTED]) | Reason: 跌停封板，无法卖出
+2026-01-27 22:09:10 [DataUpdater] INFO: ============================================================
+2026-01-27 22:09:10 [DataUpdater] INFO: Starting FULL update...
+2026-01-27 22:09:10 [DataUpdater] INFO: [1/4] Scanning TDX nodes...
+2026-01-27 22:09:13 [DataUpdater] INFO:        Best nodes: ['南京双线']
+2026-01-27 22:09:13 [DataUpdater] INFO: [2/4] Fetching stock list...
+2026-01-27 22:09:18 [DataUpdater] INFO:        Found 5189 stocks
+2026-01-27 22:09:18 [DataUpdater] INFO: [3/4] Downloading daily bars...
+2026-01-27 22:12:19 [DataUpdater] INFO: [4/4] Writing to database...
+2026-01-27 22:12:19 [DataUpdater] INFO:        Merging 5183 stocks into single DataFrame...
+2026-01-27 22:12:20 [DataUpdater] INFO:        Writing 9,944,269 rows to database...
+2026-01-27 22:13:33 [DataUpdater] INFO:        ✓ Write completed in 74.0s (134,388 rows/sec)
+2026-01-27 22:13:33 [DataUpdater] INFO: ============================================================
+2026-01-27 22:13:33 [DataUpdater] INFO: Full update completed: {'mode': 'full', 'total_stocks': 5189, 'downloaded': 5183, 'written': 5183, 'elapsed_seconds': 262.25}
+2026-01-27 23:29:58 [strategy.registry] INFO: Registered strategy: rsrs
+2026-01-27 23:29:58 [strategy.registry] INFO: Registered strategy: momentum
+2026-01-27 23:29:58 [BacktestEngine] INFO: Added strategy: rsrs
+2026-01-27 23:29:58 [BacktestEngine] INFO: Starting backtest: 2020-01-01 to 2020-01-30
+2026-01-27 23:29:58 [BacktestEngine] INFO: Strategies: ['rsrs']
+2026-01-27 23:29:58 [BacktestEngine] INFO: Loading market data...
+2026-01-27 23:35:52 [BacktestEngine] INFO: Loaded 3571 stocks, 16 trading days
+2026-01-27 23:35:52 [BacktestEngine] INFO: Initializing strategies and computing factors...
+2026-01-27 23:35:52 [Strategy.rsrs] INFO: Strategy 'rsrs' initialized with params: {'top_n': 30, 'entry_threshold': 0.7, 'exit_threshold': -0.5, 'r2_threshold': 0.8, 'use_volume_filter': True, 'use_chandelier_stop': True}
+2026-01-27 23:36:18 [Strategy.rsrs] INFO: Computed 6 factors for 3571 stocks
+2026-01-27 23:36:18 [BacktestEngine] INFO:   rsrs: computed 6 factors
+2026-01-27 23:36:18 [BacktestEngine] INFO: Running 16 trading days...
+2026-01-27 23:36:56 [MatchEngine] WARNING: [REJECT] 600455 SELL: 跌停封板，无法卖出
+2026-01-27 23:36:56 [Strategy.rsrs] WARNING: Order rejected: Order(ORD-00000041 SELL 600455 qty=800 @ 43.36 [REJECTED]) | Reason: 跌停封板，无法卖出
+2026-01-27 23:37:36 [MatchEngine] WARNING: [REJECT] 300598 SELL: 跌停封板，无法卖出
+2026-01-27 23:37:36 [Strategy.rsrs] WARNING: Order rejected: Order(ORD-00000107 SELL 300598 qty=100 @ 202.39 [REJECTED]) | Reason: 跌停封板，无法卖出
+2026-01-27 23:45:12 [strategy.registry] INFO: Registered strategy: rsrs
+2026-01-27 23:45:12 [strategy.registry] INFO: Registered strategy: momentum
+2026-01-27 23:45:15 [BacktestEngine] INFO: Added strategy: rsrs
+2026-01-27 23:45:15 [BacktestEngine] INFO: Starting backtest: 2020-01-01 to 2023-12-31
+2026-01-27 23:45:15 [BacktestEngine] INFO: Strategies: ['rsrs']
+2026-01-27 23:45:15 [BacktestEngine] INFO: Loading market data...
+2026-01-28 00:07:43 [BacktestEngine] INFO: Loaded 5014 stocks, 970 trading days
+2026-01-28 00:07:43 [BacktestEngine] INFO: Initializing strategies and computing factors...
+2026-01-28 00:07:43 [Strategy.rsrs] INFO: Strategy 'rsrs' initialized with params: {'top_n': 30, 'entry_threshold': 0.7, 'exit_threshold': -0.5, 'r2_threshold': 0.8, 'use_volume_filter': True, 'use_chandelier_stop': True}
+2026-01-28 00:08:38 [Strategy.rsrs] INFO: Computed 6 factors for 5014 stocks
+2026-01-28 00:08:38 [BacktestEngine] INFO:   rsrs: computed 6 factors
+2026-01-28 00:08:38 [BacktestEngine] INFO: Running 970 trading days...
+2026-01-28 00:09:41 [MatchEngine] WARNING: [REJECT] 600455 SELL: 跌停封板，无法卖出
+2026-01-28 00:09:41 [Strategy.rsrs] WARNING: Order rejected: Order(ORD-00000042 SELL 600455 qty=800 @ 43.36 [REJECTED]) | Reason: 跌停封板，无法卖出
+2026-01-28 00:10:53 [MatchEngine] WARNING: [REJECT] 300598 SELL: 跌停封板，无法卖出
+2026-01-28 00:10:53 [Strategy.rsrs] WARNING: Order rejected: Order(ORD-00000104 SELL 300598 qty=100 @ 202.39 [REJECTED]) | Reason: 跌停封板，无法卖出
