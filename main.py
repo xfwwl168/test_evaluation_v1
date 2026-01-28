@@ -398,6 +398,36 @@ def diagnose(ctx, code: str):
 # ==================== 系统信息 ====================
 @cli.command()
 @click.pass_context
+def menu(ctx):
+    """启动高级交互式菜单系统"""
+    try:
+        from menu.main_menu import MainMenu
+        
+        click.echo("=" * 70)
+        click.echo("🚀 启动高级交互式菜单系统 v3.0 (Option A 完整版)")
+        click.echo("=" * 70)
+        click.echo("✨ 包含功能:")
+        click.echo("  🎮 高级回测引擎 - 策略管理、因子配置、参数优化")
+        click.echo("  📡 智能实盘监控 - 策略配置、实时扫描、信号监控")
+        click.echo("  📈 深度市场分析 - 因子有效性、行业对比分析")
+        click.echo("  📊 全面数据管理 - 智能更新、质量检查、备份恢复")
+        click.echo("  🔧 完善系统管理 - 性能监控、配置管理、日志查看")
+        click.echo("=" * 70)
+        
+        menu = MainMenu()
+        menu.start()
+        
+    except ImportError as e:
+        click.echo(f"❌ 菜单系统导入失败: {e}")
+        click.echo("请确保已正确安装所有依赖")
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"❌ 菜单系统启动失败: {e}")
+        sys.exit(1)
+
+
+@cli.command()
+@click.pass_context
 def info(ctx):
     """显示系统信息"""
     click.echo("=" * 60)
@@ -412,6 +442,9 @@ def info(ctx):
     click.echo("  📊 多因子组合策略")
     click.echo("  🎨 权益曲线可视化")
     click.echo("  💾 详细结果导出")
+    click.echo("\n菜单系统:")
+    click.echo("  🎯 高级交互式菜单 v3.0")
+    click.echo("  使用: python main.py menu")
     click.echo("=" * 60)
 
 
