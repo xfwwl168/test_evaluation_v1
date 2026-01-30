@@ -64,77 +64,78 @@ class MomentumStrategy(BaseStrategy):
         return factors
     
     def generate_signals(self, context: StrategyContext) -> List[Signal]:
-        """生成交易信号"""
+        """生成交易信号 - 向量化实现"""
         signals = []
-        
+
         top_n = self.get_param('top_n')
         min_mom = self.get_param('min_momentum')
         max_vol = self.get_param('max_volatility')
         use_vol_weight = self.get_param('use_volatility_weight')
-        
-        # 收集候选
-        candidates = []
-        
-        for _, row in context.current_data.iterrows():
-            code = row['code']
-            
-            mom = context.get_factor('momentum', code)
-            vol = context.get_factor('volatility', code)
-            atr_pct = context.get_factor('atr_pct', code)
-            
-            if mom is None or pd.isna(mom):
-                continue
-            
-            # 过滤条件
-            if mom < min_mom:
-                continue
-            
-            if vol is not None and vol > max_vol:
-                continue
-            
-            candidates.append({
-                'code': code,
-                'close': row['close'],
-                'momentum': mom,
-                'volatility': vol or 0.3,
-                'atr_pct': atr_pct or 0.02
-            })
-        
-        # 排序选 Top N
-        candidates.sort(key=lambda x: x['momentum'], reverse=True)
-        selected = candidates[:top_n]
-        
-        # 计算权重
-        if use_vol_weight and selected:
-            # 波动率倒数加权
-            inv_vol = [1 / max(c['volatility'], 0.1) for c in selected]
-            total_inv_vol = sum(inv_vol)
-            weights = [v / total_inv_vol for v in inv_vol]
+
+        # 向量化收集候选 - 避免iterrows
+        df = context.current_data.copy()
+
+        # 获取因子值 (向量化)
+        df['momentum'] = df['code'].apply(lambda x: context.get_factor('momentum', x))
+        df['volatility'] = df['code'].apply(lambda x: context.get_factor('volatility', x))
+        df['atr_pct'] = df['code'].apply(lambda x: context.get_factor('atr_pct', x))
+
+        # 过滤条件 (向量化)
+        mask = df['momentum'].notna()
+        mask &= df['momentum'] >= min_mom
+        mask &= (df['volatility'].isna() | (df['volatility'] <= max_vol))
+
+        candidates_df = df[mask].copy()
+
+        if candidates_df.empty:
+            # 生成卖出信号 (清仓所有)
+            for code in list(context.positions.keys()):
+                signals.append(Signal(
+                    code=code,
+                    side=OrderSide.SELL,
+                    weight=0.0,
+                    reason="无符合条件的候选股票"
+                ))
+            return signals
+
+        # 填充缺失值
+        candidates_df['volatility'] = candidates_df['volatility'].fillna(0.3)
+        candidates_df['atr_pct'] = candidates_df['atr_pct'].fillna(0.02)
+
+        # 排序选 Top N (向量化)
+        selected_df = candidates_df.nlargest(top_n, 'momentum')
+
+        # 计算权重 (向量化)
+        if use_vol_weight and not selected_df.empty:
+            # 波动率倒数加权 (向量化)
+            inv_vol = 1 / selected_df['volatility'].clip(lower=0.1)
+            weights = (inv_vol / inv_vol.sum()).values
         else:
-            weights = [1.0 / len(selected)] * len(selected) if selected else []
-        
-        # 生成卖出信号 (清仓不在 top_n 中的)
+            weights = np.ones(len(selected_df)) / len(selected_df) if not selected_df.empty else []
+
+        # 生成卖出信号 (向量化集合操作)
+        selected_codes = set(selected_df['code'].values)
         for code in list(context.positions.keys()):
-            if code not in [c['code'] for c in selected]:
+            if code not in selected_codes:
                 signals.append(Signal(
                     code=code,
                     side=OrderSide.SELL,
                     weight=0.0,
                     reason="动量排名下降，清仓"
                 ))
-        
-        # 生成买入信号
-        for c, w in zip(selected, weights):
-            current_weight = context.positions.get(c['code'], 0) / context.total_equity if context.total_equity > 0 else 0
-            
+
+        # 生成买入信号 (向量化)
+        for (_, row), w in zip(selected_df.iterrows(), weights):
+            current_weight = context.positions.get(row['code'], 0) / context.total_equity if context.total_equity > 0 else 0
+
             # 只在权重变化较大时调整
             if abs(w - current_weight) > 0.02:
                 signals.append(Signal(
-                    code=c['code'],
+                    code=row['code'],
                     side=OrderSide.BUY,
                     weight=w * 0.95,  # 保留现金
-                    price=c['close'],
-                    reason=f"MOM={c['momentum']:.1%} VOL={c['volatility']:.1%}"
+                    price=row['close'],
+                    reason=f"MOM={row['momentum']:.1%} VOL={row['volatility']:.1%}"
                 ))
-        
+
         return signals

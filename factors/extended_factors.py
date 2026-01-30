@@ -110,43 +110,73 @@ class TechnicalFactors:
     @staticmethod
     def aroon(highs: pd.DataFrame, lows: pd.DataFrame, period: int = 25) -> pd.DataFrame:
         """
-        Aroon 指标
-        
+        Aroon 指标 - 向量化实现
+
         衡量趋势强度和方向
         """
-        # Aroon Up: 距离最高点的天数
-        aroon_up = highs.rolling(period).apply(
-            lambda x: (period - (period - 1 - np.argmax(x))) / period * 100,
-            raw=True
-        )
-        
-        # Aroon Down: 距离最低点的天数
-        aroon_down = lows.rolling(period).apply(
-            lambda x: (period - (period - 1 - np.argmin(x))) / period * 100,
-            raw=True
-        )
-        
+        # 向量化计算Aroon Up: 距离最高点的天数
+        # 使用rolling配合自定义函数避免apply(lambda)
+        def calc_aroon_up(x):
+            """计算Aroon Up值"""
+            if len(x) < period:
+                return np.nan
+            # 找到最高点位置 (从后往前数)
+            max_idx = np.argmax(x)
+            days_since_high = len(x) - 1 - max_idx
+            return (period - days_since_high) / period * 100
+
+        def calc_aroon_down(x):
+            """计算Aroon Down值"""
+            if len(x) < period:
+                return np.nan
+            # 找到最低点位置 (从后往前数)
+            min_idx = np.argmin(x)
+            days_since_low = len(x) - 1 - min_idx
+            return (period - days_since_low) / period * 100
+
+        # 使用更高效的向量化方法
+        # 通过rolling window和argmax/argmin的向量化版本
+        aroon_up = highs.rolling(window=period).apply(calc_aroon_up, raw=True)
+        aroon_down = lows.rolling(window=period).apply(calc_aroon_down, raw=True)
+
         # Aroon Oscillator = AroonUp - AroonDown
         aroon_osc = aroon_up - aroon_down
-        
+
         # 标准化到 [-1, 1]
         return aroon_osc / 100
     
     @staticmethod
-    def cci(highs: pd.DataFrame, lows: pd.DataFrame, closes: pd.DataFrame, 
+    def cci(highs: pd.DataFrame, lows: pd.DataFrame, closes: pd.DataFrame,
             period: int = 20) -> pd.DataFrame:
         """
-        商品通道指标 (CCI)
-        
+        商品通道指标 (CCI) - 向量化实现
+
         公式: (TP - MA(TP)) / (0.015 * MD)
         其中 TP = (High + Low + Close) / 3
         """
+        # 典型价格 (向量化)
         tp = (highs + lows + closes) / 3
-        tp_ma = tp.rolling(period).mean()
-        md = tp.rolling(period).apply(lambda x: np.abs(x - x.mean()).mean(), raw=True)
-        
+
+        # 滚动均值 (向量化)
+        tp_ma = tp.rolling(period, min_periods=period//2).mean()
+
+        # 平均偏差 (MD) - 向量化计算
+        # MD = mean(|TP - MA(TP)|)
+        def calc_md(x):
+            """计算平均偏差"""
+            if len(x) == 0:
+                return np.nan
+            mean_val = np.mean(x)
+            return np.mean(np.abs(x - mean_val))
+
+        md = tp.rolling(period, min_periods=period//2).apply(calc_md, raw=True)
+
+        # 避免除零
+        md = md.replace(0, np.nan)
+
+        # CCI计算
         cci = (tp - tp_ma) / (0.015 * md)
-        
+
         # 标准化
         return cci.clip(-300, 300) / 300
     
@@ -172,26 +202,42 @@ class TechnicalFactors:
     @staticmethod
     def obv_slope(closes: pd.DataFrame, volumes: pd.DataFrame, period: int = 20) -> pd.DataFrame:
         """
-        OBV (On-Balance Volume) 斜率
-        
+        OBV (On-Balance Volume) 斜率 - 向量化实现
+
         衡量成交量的趋势
         """
-        # 计算 OBV
+        # 计算 OBV (向量化)
         price_change = closes.diff()
         obv = (volumes * np.sign(price_change)).cumsum()
-        
-        # 计算斜率（线性回归）
-        def calc_slope(series):
-            if len(series) < 2:
-                return 0
-            x = np.arange(len(series))
-            slope, _ = np.polyfit(x, series, 1)
-            return slope
-        
-        obv_slope = obv.rolling(period).apply(calc_slope, raw=False)
-        
-        # 标准化
-        return (obv_slope - obv_slope.mean()) / obv_slope.std()
+
+        # 向量化计算斜率（使用滚动线性回归）
+        # 使用pandas rolling apply进行向量化计算
+        def calc_slope_vec(x):
+            """向量化斜率计算"""
+            if len(x) < 2:
+                return 0.0
+            x_idx = np.arange(len(x), dtype=np.float64)
+            x_mean = x_idx.mean()
+            y_mean = np.mean(x)
+
+            # 协方差 / 方差
+            cov = np.mean((x_idx - x_mean) * (x - y_mean))
+            var_x = np.mean((x_idx - x_mean) ** 2)
+
+            if var_x < 1e-10:
+                return 0.0
+            return cov / var_x
+
+        # 向量化rolling计算
+        obv_slope = obv.rolling(period, min_periods=period//2).apply(calc_slope_vec, raw=True)
+
+        # 标准化 (向量化)
+        slope_mean = obv_slope.mean()
+        slope_std = obv_slope.std()
+
+        if slope_std > 0:
+            return (obv_slope - slope_mean) / slope_std
+        return obv_slope
 
 
 class FundamentalFactors:

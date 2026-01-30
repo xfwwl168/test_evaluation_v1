@@ -437,7 +437,7 @@ class AlphaHunterV2Strategy(BaseStrategy):
         return signals
 
     def _generate_entry_signals(self, context: StrategyContext) -> List[Signal]:
-        """入场信号"""
+        """入场信号 - 向量化实现"""
         signals = []
 
         # 参数
@@ -456,56 +456,60 @@ class AlphaHunterV2Strategy(BaseStrategy):
         if len(self._positions) >= max_positions:
             return signals
 
+        # 向量化基础过滤
+        df = context.current_data.copy()
+
+        # 跳过已持仓
+        held_codes = set(self._positions.keys()) | set(context.positions.keys())
+        df = df[~df['code'].isin(held_codes)]
+
+        # 价格和金额过滤 (向量化)
+        df['amount'] = df.get('amount', df['close'] * df.get('vol', 0))
+        df = df[(df['close'] >= min_price) & (df['close'] <= max_price)]
+        df = df[df['amount'] >= min_amount]
+
+        if df.empty:
+            return signals
+
+        # 向量化获取因子
+        df['rsrs'] = df['code'].apply(lambda x: context.get_factor('rsrs_adaptive', x))
+        df['r2'] = df['code'].apply(lambda x: context.get_factor('rsrs_r2', x))
+        df['quality'] = df['code'].apply(lambda x: context.get_factor('signal_quality', x))
+        df['above_ma5'] = df['code'].apply(lambda x: context.get_factor('above_ma5', x))
+        df['ma5_slope'] = df['code'].apply(lambda x: context.get_factor('ma5_slope', x))
+        df['pressure'] = df['code'].apply(lambda x: context.get_factor('pressure_distance', x))
+        df['safety'] = df['code'].apply(lambda x: context.get_factor('safety_score', x) or 0.5)
+        df['surge'] = df['code'].apply(lambda x: context.get_factor('surge_score', x) or 0)
+
+        # RSRS 条件过滤 (向量化)
+        mask = df['rsrs'].notna() & (df['rsrs'] > rsrs_th)
+        mask &= df['r2'].notna() & (df['r2'] >= r2_th)
+        mask &= (df['quality'].isna() | (df['quality'] >= quality_th))
+
+        # MA5 趋势过滤 (向量化)
+        mask &= (df['above_ma5'].notna() & (df['above_ma5'] >= 1))
+        mask &= (df['ma5_slope'].notna() & (df['ma5_slope'] >= ma5_slope_th))
+
+        # 压力距离过滤 (向量化)
+        mask &= (df['pressure'].isna() | (df['pressure'] >= pressure_th))
+
+        df = df[mask]
+
+        if df.empty:
+            return signals
+
+        # 换手率和涨停检查 - 需要逐个处理
         candidates = []
 
-        for _, row in context.current_data.iterrows():
+        for _, row in df.iterrows():
             code = row['code']
             close = row['close']
-            volume = row.get('vol', 0)
-            amount = row.get('amount', close * volume)
 
-            # ===== 基础过滤 =====
-            if code in self._positions or code in context.positions:
-                continue
-
-            if close < min_price or close > max_price:
-                continue
-
-            if amount < min_amount:
-                continue
-
-            # ===== 条件 1: RSRS =====
-            rsrs = context.get_factor('rsrs_adaptive', code)
-            r2 = context.get_factor('rsrs_r2', code)
-            quality = context.get_factor('signal_quality', code)
-
-            if rsrs is None or pd.isna(rsrs) or rsrs <= rsrs_th:
-                continue
-
-            if r2 is None or pd.isna(r2) or r2 < r2_th:
-                continue
-
-            if quality is not None and quality < quality_th:
-                continue
-
-            # ===== 条件 2: MA5 趋势 =====
-            above_ma5 = context.get_factor('above_ma5', code)
-            ma5_slope = context.get_factor('ma5_slope', code)
-
-            if above_ma5 is None or above_ma5 < 1:
-                continue
-
-            if ma5_slope is None or ma5_slope < ma5_slope_th:
-                continue
-
-            # ===== 条件 3: 压力距离 =====
-            pressure = context.get_factor('pressure_distance', code)
-            if pressure is not None and pressure < pressure_th:
-                continue
-
-            # ===== 条件 4: 换手率 =====
+            # 获取历史数据
             history = context.get_history(code, 5)
-            if not history.empty and 'amount' in history.columns:
+
+            # 换手率检查
+            if not history.empty and 'amount' in history.columns and 'vol' in history.columns:
                 avg_amount = history['amount'].mean()
                 market_cap_est = close * history['vol'].mean() * 100
                 turnover = avg_amount / market_cap_est if market_cap_est > 0 else 0
@@ -513,28 +517,25 @@ class AlphaHunterV2Strategy(BaseStrategy):
                 if turnover > max_turnover:
                     continue
 
-            # ===== 条件 5: 非涨停 =====
+            # 涨停检查
             if not self.get_param('allow_limit_up_chase'):
-                if not history.empty:
+                if not history.empty and len(history) >= 1:
                     prev_close = history['close'].iloc[-1]
                     if close >= prev_close * 1.095:
                         continue
 
-            # 通过所有条件
-            safety = context.get_factor('safety_score', code) or 0.5
-            surge = context.get_factor('surge_score', code) or 0
-
-            score = rsrs * r2 * (0.5 + 0.5 * safety) * (1 + 0.2 * surge)
+            # 计算综合评分
+            score = row['rsrs'] * row['r2'] * (0.5 + 0.5 * row['safety']) * (1 + 0.2 * row['surge'])
 
             candidates.append({
                 'code': code,
                 'close': close,
-                'rsrs': rsrs,
-                'r2': r2,
-                'quality': quality or 0.5,
-                'pressure': pressure or 0.1,
-                'safety': safety,
-                'surge': surge,
+                'rsrs': row['rsrs'],
+                'r2': row['r2'],
+                'quality': row['quality'] if pd.notna(row['quality']) else 0.5,
+                'pressure': row['pressure'] if pd.notna(row['pressure']) else 0.1,
+                'safety': row['safety'],
+                'surge': row['surge'],
                 'score': score
             })
 

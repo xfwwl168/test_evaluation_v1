@@ -255,85 +255,87 @@ class ShortTermRSRSStrategy(BaseStrategy):
         return signals
     
     def _screen_entry_candidates(self, context: StrategyContext) -> List[Dict]:
-        """筛选入场候选股"""
-        candidates = []
-        
+        """筛选入场候选股 - 向量化实现"""
         rsrs_threshold = self.get_param('rsrs_entry_threshold')
         r2_threshold = self.get_param('r2_threshold')
         vol_mult = self.get_param('volume_multiplier')
         min_price = self.get_param('min_price')
         max_price = self.get_param('max_price')
         min_volume = self.get_param('min_volume')
-        
-        for _, row in context.current_data.iterrows():
+
+        # 向量化基础过滤
+        df = context.current_data.copy()
+
+        # 跳过已持仓
+        df = df[~df['code'].isin(context.positions.keys())]
+
+        # 价格过滤 (向量化)
+        df = df[(df['close'] >= min_price) & (df['close'] <= max_price)]
+
+        # 成交量过滤 (向量化)
+        vol_col = 'vol' if 'vol' in df.columns else 'volume'
+        df = df[df[vol_col] >= min_volume]
+
+        if df.empty:
+            return []
+
+        # 向量化获取因子
+        df['rsrs_score'] = df['code'].apply(lambda x: context.get_factor('rsrs_score', x))
+        df['rsrs_r2'] = df['code'].apply(lambda x: context.get_factor('rsrs_r2', x))
+        df['atr_pct'] = df['code'].apply(lambda x: context.get_factor('atr_pct', x))
+
+        # RSRS 过滤 (向量化)
+        df = df[df['rsrs_score'].notna() & (df['rsrs_score'] > rsrs_threshold)]
+        df = df[df['rsrs_r2'].notna() & (df['rsrs_r2'] >= r2_threshold)]
+
+        if df.empty:
+            return []
+
+        # 均线趋势和成交量过滤 - 需要逐个股票获取历史数据
+        candidates = []
+
+        for _, row in df.iterrows():
             code = row['code']
             close = row['close']
-            volume = row.get('vol', row.get('volume', 0))
-            
-            # ===== 基础过滤 =====
-            # 跳过已持仓
-            if code in context.positions:
-                continue
-            
-            # 价格过滤
-            if close < min_price or close > max_price:
-                continue
-            
-            # 成交量过滤
-            if volume < min_volume:
-                continue
-            
-            # ===== 因子获取 =====
-            rsrs_score = context.get_factor('rsrs_score', code)
-            rsrs_r2 = context.get_factor('rsrs_r2', code)
-            atr_pct = context.get_factor('atr_pct', code)
-            
-            if rsrs_score is None or pd.isna(rsrs_score):
-                continue
-            
-            # ===== 条件1: RSRS 过滤 =====
-            if rsrs_score <= rsrs_threshold:
-                continue
-            
-            if rsrs_r2 is None or rsrs_r2 < r2_threshold:
-                continue
-            
-            # ===== 条件2: 均线趋势过滤 =====
+            volume = row[vol_col]
+
+            # 获取历史数据进行均线计算
             history = context.get_history(code, 25)
             if history.empty or len(history) < 20:
                 continue
-            
+
+            # 均线趋势过滤
             ma5 = history['close'].tail(5).mean()
             ma20 = history['close'].tail(20).mean()
-            
+
             if close <= ma5 or close <= ma20:
                 continue
-            
-            # ===== 条件3: 放量突破过滤 =====
-            vol_ma5 = history['vol'].tail(5).mean() if 'vol' in history.columns else 0
-            
+
+            # 放量突破过滤
+            vol_ma5 = history[vol_col].tail(5).mean() if vol_col in history.columns else 0
+
             if vol_ma5 <= 0:
                 continue
-            
+
             vol_ratio = volume / vol_ma5
-            
+
             if vol_ratio < vol_mult:
                 continue
-            
-            # ===== 通过所有条件 =====
+
+            # 通过所有条件
             candidates.append({
                 'code': code,
                 'close': close,
                 'volume': volume,
-                'rsrs_score': rsrs_score,
-                'rsrs_r2': rsrs_r2,
-                'atr_pct': atr_pct or 0.02,
+                'rsrs_score': row['rsrs_score'],
+                'rsrs_r2': row['rsrs_r2'],
+                'atr_pct': row['atr_pct'] if pd.notna(row['atr_pct']) else 0.02,
                 'ma5': ma5,
                 'ma20': ma20,
                 'vol_ratio': vol_ratio,
-                'score': rsrs_score * rsrs_r2  # 综合评分
+                'score': row['rsrs_score'] * row['rsrs_r2']  # 综合评分
             })
-        
+
         return candidates
     
     def _generate_exit_signals(self, context: StrategyContext) -> List[Signal]:

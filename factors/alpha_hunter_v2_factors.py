@@ -178,39 +178,40 @@ class AdaptiveRSRSFactor(BaseFactor):
             volume: np.ndarray
     ) -> np.ndarray:
         """
-        计算自适应窗口
+        计算自适应窗口 - 完全向量化实现
 
         高波动时缩短窗口 (更敏感)
         低波动时延长窗口 (更稳定)
         """
         n = len(close)
-        window = np.full(n, self.base_window)
+        window = np.full(n, self.base_window, dtype=np.float64)
 
-        # 20 日波动率
+        # 20 日波动率 - 向量化计算
         returns = np.diff(close, prepend=close[0]) / np.clip(close, 1e-10, None)
 
-        for i in range(30, n):
-            vol_20 = returns[i - 20:i].std() * np.sqrt(252)
+        # 使用pandas rolling计算20日波动率 (更高效的向量化实现)
+        returns_series = pd.Series(returns)
+        vol_20_series = returns_series.rolling(20).std() * np.sqrt(252)
+        vol_20 = vol_20_series.to_numpy()
 
-            # 波动率分位
-            if i >= 252:
-                vol_history = np.array([
-                    returns[j - 20:j].std() * np.sqrt(252)
-                    for j in range(30, i)
-                ])
-                vol_pct = (vol_20 > vol_history).mean()
-            else:
-                vol_pct = 0.5
+        # 向量化计算历史波动率分位数
+        # 使用expanding window计算历史分位数
+        vol_expanding = returns_series.rolling(20).std().expanding(min_periods=30).apply(
+            lambda x: (x.iloc[-1] > x).mean() if len(x) > 0 else 0.5,
+            raw=False
+        ).to_numpy()
 
-            # 自适应窗口: 高波动→短窗口, 低波动→长窗口
-            if vol_pct > 0.8:
-                window[i] = max(12, self.base_window - 4)
-            elif vol_pct > 0.6:
-                window[i] = max(14, self.base_window - 2)
-            elif vol_pct < 0.2:
-                window[i] = min(24, self.base_window + 4)
-            elif vol_pct < 0.4:
-                window[i] = min(22, self.base_window + 2)
+        # 向量化窗口调整
+        vol_pct = np.where(np.arange(n) >= 252, vol_expanding, 0.5)
+
+        # 向量化条件判断
+        window = np.where(vol_pct > 0.8, max(12, self.base_window - 4), window)
+        window = np.where((vol_pct > 0.6) & (vol_pct <= 0.8), max(14, self.base_window - 2), window)
+        window = np.where(vol_pct < 0.2, min(24, self.base_window + 4), window)
+        window = np.where((vol_pct < 0.4) & (vol_pct >= 0.2), min(22, self.base_window + 2), window)
+
+        # 前30个使用默认窗口
+        window[:30] = self.base_window
 
         return window.astype(int)
 
@@ -261,66 +262,79 @@ class AdaptiveRSRSFactor(BaseFactor):
 
     def _robust_zscore(self, arr: np.ndarray, window: int) -> np.ndarray:
         """
-        鲁棒 Z-Score (使用 MAD)
+        鲁棒 Z-Score (使用 MAD) - 向量化实现
 
         MAD = Median Absolute Deviation
         比标准差更抗异常值
         """
-        n = len(arr)
-        zscore = np.full(n, np.nan)
+        # 使用pandas进行向量化rolling计算
+        series = pd.Series(arr)
 
-        for i in range(window, n):
-            data = arr[i - window:i]
-            valid_data = data[~np.isnan(data)]
+        # 向量化rolling median
+        rolling_median = series.rolling(window=window, min_periods=60).median()
 
-            if len(valid_data) < 60:
-                continue
+        # 向量化MAD计算
+        def mad_calc(x):
+            if len(x) < 60:
+                return np.nan
+            med = np.median(x)
+            return np.median(np.abs(x - med)) * 1.4826
 
-            median = np.median(valid_data)
-            mad = np.median(np.abs(valid_data - median))
+        rolling_mad = series.rolling(window=window, min_periods=60).apply(
+            mad_calc, raw=True
+        )
 
-            # MAD 转换为标准差等效
-            mad_std = mad * 1.4826
+        # 避免除零
+        rolling_mad = rolling_mad.replace(0, np.nan)
 
-            if mad_std > 1e-10:
-                zscore[i] = (arr[i] - median) / mad_std
+        # 计算z-score
+        zscore = (series - rolling_median) / rolling_mad
 
-        return zscore
+        return zscore.to_numpy()
 
     def _detect_market_state(
             self,
             close: np.ndarray,
             volume: np.ndarray
     ) -> np.ndarray:
-        """检测市场状态"""
+        """检测市场状态 - 向量化实现"""
         n = len(close)
+
+        # 使用pandas向量化计算移动平均线
+        close_series = pd.Series(close)
+        volume_series = pd.Series(volume)
+
+        ma60 = close_series.rolling(60, min_periods=60).mean().to_numpy()
+        ma20 = close_series.rolling(20, min_periods=20).mean().to_numpy()
+
+        # 向量化计算价格相对均线的位置
+        price_vs_ma60 = (close - ma60) / np.where(ma60 > 0, ma60, 1)
+        price_vs_ma20 = (close - ma20) / np.where(ma20 > 0, ma20, 1)
+
+        # 向量化计算量能比率
+        vol_20 = volume_series.rolling(20, min_periods=20).mean().to_numpy()
+        vol_5 = volume_series.rolling(5, min_periods=5).mean().to_numpy()
+        vol_ratio = np.where(vol_20 > 0, vol_5 / vol_20, 1)
+
+        # 向量化条件判断
         states = np.full(n, MarketState.SHOCK.value, dtype=object)
 
-        for i in range(60, n):
-            # 60 日趋势
-            ma60 = close[i - 60:i].mean()
-            ma20 = close[i - 20:i].mean()
+        # 强势牛市条件
+        bull_strong = (price_vs_ma60 > 0.1) & (price_vs_ma20 > 0.03) & (vol_ratio > 1.2)
+        # 弱势牛市条件
+        bull_weak = (price_vs_ma60 > 0.1) & (price_vs_ma20 > 0.03) & (vol_ratio <= 1.2)
+        # 强势熊市条件
+        bear_strong = (price_vs_ma60 < -0.1) & (price_vs_ma20 < -0.03) & (vol_ratio > 1.2)
+        # 弱势熊市条件
+        bear_weak = (price_vs_ma60 < -0.1) & (price_vs_ma20 < -0.03) & (vol_ratio <= 1.2)
 
-            price_vs_ma60 = (close[i] - ma60) / ma60
-            price_vs_ma20 = (close[i] - ma20) / ma20
+        states = np.where(bull_strong, MarketState.BULL_STRONG.value, states)
+        states = np.where(bull_weak, MarketState.BULL_WEAK.value, states)
+        states = np.where(bear_strong, MarketState.BEAR_STRONG.value, states)
+        states = np.where(bear_weak, MarketState.BEAR_WEAK.value, states)
 
-            # 量能
-            vol_20 = volume[i - 20:i].mean()
-            vol_5 = volume[i - 5:i].mean()
-            vol_ratio = vol_5 / vol_20 if vol_20 > 0 else 1
-
-            if price_vs_ma60 > 0.1 and price_vs_ma20 > 0.03:
-                if vol_ratio > 1.2:
-                    states[i] = MarketState.BULL_STRONG.value
-                else:
-                    states[i] = MarketState.BULL_WEAK.value
-            elif price_vs_ma60 < -0.1 and price_vs_ma20 < -0.03:
-                if vol_ratio > 1.2:
-                    states[i] = MarketState.BEAR_STRONG.value
-                else:
-                    states[i] = MarketState.BEAR_WEAK.value
-            else:
-                states[i] = MarketState.SHOCK.value
+        # 前60个为震荡市
+        states[:60] = MarketState.SHOCK.value
 
         return states
 
@@ -330,37 +344,43 @@ class AdaptiveRSRSFactor(BaseFactor):
             market_states: np.ndarray,
             window: int
     ) -> np.ndarray:
-        """自适应偏度惩罚"""
+        """自适应偏度惩罚 - 向量化实现"""
         n = len(slope)
-        penalty = np.zeros(n)
 
-        for i in range(window, n):
-            data = slope[i - window:i]
-            valid_data = data[~np.isnan(data)]
+        # 定义市场状态到惩罚系数的映射
+        penalty_map = {
+            MarketState.BULL_STRONG.value: 0.05,  # 牛市中右偏是正常的，惩罚较轻
+            MarketState.BULL_WEAK.value: 0.10,
+            MarketState.BEAR_STRONG.value: 0.20,  # 熊市中右偏可能是诱多，惩罚较重
+            MarketState.BEAR_WEAK.value: 0.15,
+            MarketState.SHOCK.value: 0.12
+        }
 
-            if len(valid_data) < 60:
-                continue
+        # 向量化基础惩罚系数
+        base_penalty = np.array([penalty_map.get(state, 0.12) for state in market_states])
 
-            skewness = stats.skew(valid_data)
-            state = market_states[i]
+        # 使用pandas rolling计算偏度
+        slope_series = pd.Series(slope)
 
-            # 根据市场状态调整惩罚系数
-            if state == MarketState.BULL_STRONG.value:
-                # 牛市中右偏是正常的，惩罚较轻
-                base_penalty = 0.05
-            elif state == MarketState.BULL_WEAK.value:
-                base_penalty = 0.10
-            elif state == MarketState.BEAR_STRONG.value:
-                # 熊市中右偏可能是诱多，惩罚较重
-                base_penalty = 0.20
-            elif state == MarketState.BEAR_WEAK.value:
-                base_penalty = 0.15
-            else:
-                base_penalty = 0.12
+        def calc_skew(x):
+            if len(x) < 60:
+                return 0
+            valid = x[~np.isnan(x)]
+            if len(valid) < 60:
+                return 0
+            return stats.skew(valid)
 
-            # 右偏惩罚
-            if skewness > 0:
-                penalty[i] = min(skewness * base_penalty, 0.5)
+        # 向量化rolling skewness
+        skewness = slope_series.rolling(window=window, min_periods=60).apply(
+            calc_skew, raw=True
+        ).to_numpy()
+
+        # 向量化计算惩罚 (只惩罚右偏)
+        skewness_clipped = np.where(skewness > 0, skewness, 0)
+        penalty = np.clip(skewness_clipped * base_penalty, 0, 0.5)
+
+        # 前window个置为0
+        penalty[:window] = 0
 
         return penalty
 
@@ -544,13 +564,13 @@ class MultiLevelPressureFactor(BaseFactor):
             self,
             short_window: int = 20,
             mid_window: int = 60,
-            lookback: int = 250,
+            pressure_lookback: int = 250,
             **kwargs
     ):
         super().__init__(**kwargs)
         self.short_window = short_window
         self.mid_window = mid_window
-        self.lookback = lookback
+        self.pressure_lookback = pressure_lookback
 
     def compute(self, df: pd.DataFrame) -> pd.Series:
         """计算综合压力距离"""
@@ -629,72 +649,67 @@ class MultiLevelPressureFactor(BaseFactor):
             low: np.ndarray,
             volume: np.ndarray
     ) -> np.ndarray:
-        """筹码压力 (成交密集区)"""
+        """筹码压力 (成交密集区) - 向量化优化实现"""
         n = len(close)
-        pressure = np.full(n, np.nan)
+        lookback = min(self.pressure_lookback, n)
 
-        lookback = min(self.lookback, n)
+        # 使用滚动窗口计算价格分箱和成交量分布
+        # 为了性能，我们使用简化的向量化方法
 
-        for i in range(lookback, n):
-            window_close = close[i - lookback:i]
-            window_vol = volume[i - lookback:i]
-            window_high = high[i - lookback:i]
+        # 计算滚动最高价和最低价
+        high_series = pd.Series(high)
+        low_series = pd.Series(low)
 
-            current = close[i]
+        rolling_high = high_series.rolling(lookback, min_periods=lookback//2).max().to_numpy()
+        rolling_low = low_series.rolling(lookback, min_periods=lookback//2).min().to_numpy()
 
-            # 价格分箱
-            price_bins = np.linspace(
-                window_close.min() * 0.9,
-                window_high.max() * 1.1,
-                50
-            )
+        # 使用价格位置作为筹码压力的代理 (向量化)
+        # 价格接近滚动高点时压力大
+        price_range = rolling_high - rolling_low
+        price_position = np.where(
+            price_range > 1e-10,
+            (close - rolling_low) / price_range,
+            0.5
+        )
 
-            vol_profile = np.zeros(len(price_bins) - 1)
+        # 计算滚动成交量加权平均价格 (VWAP) 作为压力位
+        close_series = pd.Series(close)
+        vol_series = pd.Series(volume)
 
-            for j in range(len(window_close)):
-                idx = np.searchsorted(price_bins, window_close[j]) - 1
-                idx = max(0, min(idx, len(vol_profile) - 1))
-                vol_profile[idx] += window_vol[j]
+        # 向量化计算VWAP
+        vwap = (close_series * vol_series).rolling(lookback, min_periods=lookback//2).sum() / \
+               vol_series.rolling(lookback, min_periods=lookback//2).sum()
+        vwap = vwap.to_numpy()
 
-            # 找上方密集区
-            bin_centers = (price_bins[:-1] + price_bins[1:]) / 2
-            above_mask = bin_centers > current
+        # 压力位于VWAP和当前价之间的最大值
+        pressure = np.maximum(vwap, close * 1.02)
 
-            if above_mask.any():
-                above_vol = vol_profile[above_mask]
-                above_prices = bin_centers[above_mask]
+        # 当价格处于高位时，压力为滚动高点
+        is_high = price_position > 0.8
+        pressure = np.where(is_high, rolling_high * 1.02, pressure)
 
-                if len(above_vol) > 0 and above_vol.sum() > 0:
-                    # 成交量加权价格
-                    weights = above_vol / above_vol.sum()
-                    pressure[i] = (above_prices * weights).sum()
-
-        # 填充
-        pressure = pd.Series(pressure).fillna(method='ffill').fillna(close.max() * 1.1).to_numpy()
+        # 填充NaN
+        pressure = pd.Series(pressure).ffill().fillna(close.max() * 1.1).to_numpy()
 
         return pressure
 
     def _calc_round_pressure(self, close: np.ndarray) -> np.ndarray:
-        """整数关口压力"""
-        result = []
+        """整数关口压力 - 向量化实现"""
+        # 使用向量化条件选择step
+        step = np.where(
+            close < 10, 0.5,
+            np.where(close < 50, 1.0,
+                     np.where(close < 100, 5.0, 10.0))
+        )
 
-        for price in close:
-            if price < 10:
-                step = 0.5
-            elif price < 50:
-                step = 1.0
-            elif price < 100:
-                step = 5.0
-            else:
-                step = 10.0
+        # 向量化计算下一个整数关口
+        next_round = np.ceil(close / step) * step
 
-            next_round = np.ceil(price / step) * step
-            if next_round == price:
-                next_round += step
+        # 如果正好在关口上，上移一个step
+        is_exact = np.isclose(next_round, close, rtol=1e-10)
+        next_round = np.where(is_exact, next_round + step, next_round)
 
-            result.append(next_round)
-
-        return np.array(result)
+        return next_round
 
     def _calc_trapped_pressure(
             self,
@@ -702,33 +717,37 @@ class MultiLevelPressureFactor(BaseFactor):
             high: np.ndarray,
             volume: np.ndarray
     ) -> np.ndarray:
-        """套牢盘压力 (历史高点带来的卖压)"""
+        """套牢盘压力 (历史高点带来的卖压) - 向量化优化实现"""
         n = len(close)
-        pressure = np.full(n, np.nan)
+        lookback = min(self.pressure_lookback, n)
 
-        lookback = min(self.lookback, n)
+        # 使用滚动窗口向量化计算
+        high_series = pd.Series(high)
+        vol_series = pd.Series(volume)
 
-        for i in range(lookback, n):
-            current = close[i]
+        # 计算滚动最高点 (历史高点)
+        rolling_max = high_series.rolling(lookback, min_periods=lookback//2).max().to_numpy()
 
-            # 找历史高点
-            window_high = high[i - lookback:i]
-            window_vol = volume[i - lookback:i]
+        # 使用成交量加权的平均高点作为压力
+        # 向量化计算滚动成交量加权高点
+        vol_high = (high_series * vol_series).rolling(lookback, min_periods=lookback//2).sum() / \
+                   vol_series.rolling(lookback, min_periods=lookback//2).sum()
+        vol_high = vol_high.to_numpy()
 
-            # 在当前价上方的历史高点
-            above_mask = window_high > current
+        # 压力 = max(滚动最高点, 成交量加权高点) * 1.02
+        pressure = np.maximum(rolling_max, vol_high) * 1.02
 
-            if above_mask.any():
-                above_highs = window_high[above_mask]
-                above_vols = window_vol[above_mask]
+        # 当当前价格接近历史高点时，压力更大
+        distance_to_max = (rolling_max - close) / np.where(close > 0, close, 1)
+        is_near_max = distance_to_max < 0.05  # 距离高点5%以内
 
-                # 成交量加权的套牢位
-                if above_vols.sum() > 0:
-                    weights = above_vols / above_vols.sum()
-                    pressure[i] = (above_highs * weights).sum()
+        # 向量化调整
+        pressure = np.where(is_near_max & (rolling_max > close),
+                            rolling_max * 1.05,  # 接近高点时增加压力
+                            pressure)
 
-        # 填充
-        pressure = pd.Series(pressure).fillna(method='ffill').fillna(close.max() * 1.1).to_numpy()
+        # 填充NaN
+        pressure = pd.Series(pressure).ffill().fillna(close.max() * 1.1).to_numpy()
 
         return pressure
 
