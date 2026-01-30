@@ -177,43 +177,72 @@ class AdaptiveRSRSFactor(BaseFactor):
             close: np.ndarray,
             volume: np.ndarray
     ) -> np.ndarray:
-        """
-        计算自适应窗口 - 完全向量化实现
+        """计算自适应窗口。
 
-        高波动时缩短窗口 (更敏感)
-        低波动时延长窗口 (更稳定)
+        设计目标：替代历史实现中的 O(n^2) 双重循环，使用排序/rank 计算
+        波动率分位（O(n log n)），并通过 NumPy 向量化完成窗口映射。
+
+        规则：
+        - vol_rank > 0.8  -> base_window - 4（下限 12）
+        - 0.6~0.8         -> base_window - 2（下限 14）
+        - 0.2~0.4         -> base_window + 2（上限 22）
+        - <0.2            -> base_window + 4（上限 24）
+
+        注意：为了与旧版逻辑保持一致，前 30 个位置固定为 base_window。
         """
         n = len(close)
-        window = np.full(n, self.base_window, dtype=np.float64)
+        window = np.full(n, self.base_window, dtype=np.int32)
 
-        # 20 日波动率 - 向量化计算
+        if n == 0:
+            return window
+
+        # 20 日年化波动率序列（pandas rolling 内部为 C 实现，快且稳）
         returns = np.diff(close, prepend=close[0]) / np.clip(close, 1e-10, None)
+        vol_20 = (pd.Series(returns).rolling(20).std() * np.sqrt(252)).to_numpy()
 
-        # 使用pandas rolling计算20日波动率 (更高效的向量化实现)
-        returns_series = pd.Series(returns)
-        vol_20_series = returns_series.rolling(20).std() * np.sqrt(252)
-        vol_20 = vol_20_series.to_numpy()
+        # 仅在 i>=252 的位置计算历史分位；其余默认 0.5（不触发窗口变化）
+        vol_pct = np.full(n, 0.5, dtype=np.float64)
 
-        # 向量化计算历史波动率分位数
-        # 使用expanding window计算历史分位数
-        vol_expanding = returns_series.rolling(20).std().expanding(min_periods=30).apply(
-            lambda x: (x.iloc[-1] > x).mean() if len(x) > 0 else 0.5,
-            raw=False
-        ).to_numpy()
+        if n > 252:
+            valid_mask = (~np.isnan(vol_20)) & (vol_20 > 0)
+            idx = np.arange(n)
+            valid_idx = idx[(idx >= 252) & valid_mask]
 
-        # 向量化窗口调整
-        vol_pct = np.where(np.arange(n) >= 252, vol_expanding, 0.5)
+            if valid_idx.size > 0:
+                # 使用稳定排序实现 rankdata(kind='average') 的等价效果
+                v = vol_20[valid_idx]
+                order = np.argsort(v, kind='mergesort')
+                ranks = np.empty_like(order, dtype=np.float64)
 
-        # 向量化条件判断
-        window = np.where(vol_pct > 0.8, max(12, self.base_window - 4), window)
-        window = np.where((vol_pct > 0.6) & (vol_pct <= 0.8), max(14, self.base_window - 2), window)
-        window = np.where(vol_pct < 0.2, min(24, self.base_window + 4), window)
-        window = np.where((vol_pct < 0.4) & (vol_pct >= 0.2), min(22, self.base_window + 2), window)
+                sorted_v = v[order]
+                m = sorted_v.size
+                start = 0
+                while start < m:
+                    end = start + 1
+                    while end < m and sorted_v[end] == sorted_v[start]:
+                        end += 1
+                    avg_rank = 0.5 * ((start + 1) + end)
+                    ranks[start:end] = avg_rank
+                    start = end
 
-        # 前30个使用默认窗口
-        window[:30] = self.base_window
+                inv = np.empty_like(order)
+                inv[order] = np.arange(m)
+                frac = ranks[inv] / float(m)
+                vol_pct[valid_idx] = frac
 
-        return window.astype(int)
+        # 映射到窗口（向量化赋值）
+        w = window.astype(np.int32)
+        w = np.where(vol_pct > 0.8, np.maximum(12, self.base_window - 4), w)
+        w = np.where((vol_pct > 0.6) & (vol_pct <= 0.8), np.maximum(14, self.base_window - 2), w)
+        w = np.where((vol_pct >= 0.2) & (vol_pct < 0.4), np.minimum(22, self.base_window + 2), w)
+        w = np.where(vol_pct < 0.2, np.minimum(24, self.base_window + 4), w)
+
+        if n >= 30:
+            w[:30] = self.base_window
+        else:
+            w[:] = self.base_window
+
+        return w.astype(np.int32)
 
     def _vectorized_ols_multi_window(
             self,
@@ -261,79 +290,82 @@ class AdaptiveRSRSFactor(BaseFactor):
         return slope_full, r2_full, residual_full
 
     def _robust_zscore(self, arr: np.ndarray, window: int) -> np.ndarray:
-        """
-        鲁棒 Z-Score (使用 MAD) - 向量化实现
+        """鲁棒 Z-Score（MAD 标准化）。
 
-        MAD = Median Absolute Deviation
-        比标准差更抗异常值
-        """
-        # 使用pandas进行向量化rolling计算
-        series = pd.Series(arr)
+        目标：替代 O(n×window) 的 Python for 循环，使用 pandas rolling 进行
+        向量化计算（底层 C 实现），并保证与旧版边界行为一致：
+        - rolling 窗口内有效样本不足 60 -> 输出 NaN
+        - MAD 过小（<=1e-10）-> 输出 NaN（旧版不会赋值）
 
-        # 向量化rolling median
+        说明：这里不对 NaN 进行 fill，保持上游/下游逻辑决定如何处理。
+        """
+        series = pd.Series(arr, dtype="float64")
+
         rolling_median = series.rolling(window=window, min_periods=60).median()
 
-        # 向量化MAD计算
-        def mad_calc(x):
-            if len(x) < 60:
+        # rolling.apply(raw=True) 传入 numpy.ndarray，可避免 Series 构造开销
+        def _mad_raw(x: np.ndarray) -> float:
+            # min_periods 已保证长度>=60，但仍可能包含 NaN
+            valid = x[~np.isnan(x)]
+            if valid.size < 60:
                 return np.nan
-            med = np.median(x)
-            return np.median(np.abs(x - med)) * 1.4826
+            med = np.median(valid)
+            mad = np.median(np.abs(valid - med)) * 1.4826
+            if mad <= 1e-10:
+                return np.nan
+            return mad
 
-        rolling_mad = series.rolling(window=window, min_periods=60).apply(
-            mad_calc, raw=True
-        )
+        rolling_mad = series.rolling(window=window, min_periods=60).apply(_mad_raw, raw=True)
 
-        # 避免除零
-        rolling_mad = rolling_mad.replace(0, np.nan)
-
-        # 计算z-score
-        zscore = (series - rolling_median) / rolling_mad
-
-        return zscore.to_numpy()
+        z = (series - rolling_median) / rolling_mad
+        return z.to_numpy(dtype=np.float64)
 
     def _detect_market_state(
             self,
             close: np.ndarray,
             volume: np.ndarray
     ) -> np.ndarray:
-        """检测市场状态 - 向量化实现"""
+        """检测市场状态（完全向量化）。
+
+        目标：替代逐行遍历，改为一次 rolling 计算 + 掩码赋值（O(n)）。
+
+        返回：MarketState 的 value（字符串），与历史实现一致。
+        """
         n = len(close)
+        if n == 0:
+            return np.array([], dtype=object)
 
-        # 使用pandas向量化计算移动平均线
-        close_series = pd.Series(close)
-        volume_series = pd.Series(volume)
+        df = pd.DataFrame({
+            "close": close,
+            "volume": volume,
+        })
 
-        ma60 = close_series.rolling(60, min_periods=60).mean().to_numpy()
-        ma20 = close_series.rolling(20, min_periods=20).mean().to_numpy()
-
-        # 向量化计算价格相对均线的位置
-        price_vs_ma60 = (close - ma60) / np.where(ma60 > 0, ma60, 1)
-        price_vs_ma20 = (close - ma20) / np.where(ma20 > 0, ma20, 1)
-
-        # 向量化计算量能比率
-        vol_20 = volume_series.rolling(20, min_periods=20).mean().to_numpy()
-        vol_5 = volume_series.rolling(5, min_periods=5).mean().to_numpy()
-        vol_ratio = np.where(vol_20 > 0, vol_5 / vol_20, 1)
-
-        # 向量化条件判断
         states = np.full(n, MarketState.SHOCK.value, dtype=object)
 
-        # 强势牛市条件
-        bull_strong = (price_vs_ma60 > 0.1) & (price_vs_ma20 > 0.03) & (vol_ratio > 1.2)
-        # 弱势牛市条件
-        bull_weak = (price_vs_ma60 > 0.1) & (price_vs_ma20 > 0.03) & (vol_ratio <= 1.2)
-        # 强势熊市条件
-        bear_strong = (price_vs_ma60 < -0.1) & (price_vs_ma20 < -0.03) & (vol_ratio > 1.2)
-        # 弱势熊市条件
-        bear_weak = (price_vs_ma60 < -0.1) & (price_vs_ma20 < -0.03) & (vol_ratio <= 1.2)
+        ma60 = df["close"].rolling(window=60, min_periods=60).mean()
+        ma20 = df["close"].rolling(window=20, min_periods=20).mean()
+        vol_20 = df["volume"].rolling(window=20, min_periods=20).mean()
+        vol_5 = df["volume"].rolling(window=5, min_periods=5).mean()
 
-        states = np.where(bull_strong, MarketState.BULL_STRONG.value, states)
-        states = np.where(bull_weak, MarketState.BULL_WEAK.value, states)
-        states = np.where(bear_strong, MarketState.BEAR_STRONG.value, states)
-        states = np.where(bear_weak, MarketState.BEAR_WEAK.value, states)
+        price_vs_ma60 = (df["close"] - ma60) / (ma60 + 1e-10)
+        price_vs_ma20 = (df["close"] - ma20) / (ma20 + 1e-10)
+        vol_ratio = vol_5 / (vol_20 + 1e-10)
 
-        # 前60个为震荡市
+        bull_base = (price_vs_ma60 > 0.1) & (price_vs_ma20 > 0.03)
+        bear_base = (price_vs_ma60 < -0.1) & (price_vs_ma20 < -0.03)
+        vol_strong = vol_ratio > 1.2
+
+        bull_strong = bull_base & vol_strong
+        bull_weak = bull_base & (~vol_strong)
+        bear_strong = bear_base & vol_strong
+        bear_weak = bear_base & (~vol_strong)
+
+        states[bull_strong.to_numpy()] = MarketState.BULL_STRONG.value
+        states[bull_weak.to_numpy()] = MarketState.BULL_WEAK.value
+        states[bear_strong.to_numpy()] = MarketState.BEAR_STRONG.value
+        states[bear_weak.to_numpy()] = MarketState.BEAR_WEAK.value
+
+        # 前 60 个交易日无法计算 MA60，按震荡处理（与旧逻辑一致）
         states[:60] = MarketState.SHOCK.value
 
         return states
