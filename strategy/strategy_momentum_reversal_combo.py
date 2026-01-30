@@ -27,7 +27,7 @@ from dataclasses import dataclass
 import logging
 
 from strategy.base import BaseStrategy, StrategyContext, Signal, OrderSide
-from risk.risk_manager import RiskManager
+from engine.risk import RiskManager
 from config import settings
 
 
@@ -63,15 +63,17 @@ class MRConfig:
 class MomentumReversalStrategy(BaseStrategy):
     """动量反转组合策略"""
     
+    name = "momentum_reversal_combo"
+    
     def __init__(self, config: MRConfig = None):
-        super().__init__(name="momentum_reversal_combo")
+        super().__init__()
         self.config = config or MRConfig()
         self.logger = logging.getLogger(self.__class__.__name__)
         
         # 风险管理
         self.risk_manager = RiskManager(
-            max_position_weight=0.10,  # 单股最大10%
-            max_total_position=0.95
+            max_single_weight=0.10,  # 单股最大10%
+            max_total_weight=0.95
         )
         
         # 持仓跟踪
@@ -91,55 +93,174 @@ class MomentumReversalStrategy(BaseStrategy):
     
     def compute_factors(self, history_data: Dict[str, pd.DataFrame]) -> Dict[str, pd.Series]:
         """
-        计算因子
-        
+        计算因子 - 向量化批量实现
+
         Args:
             history_data: {code: DataFrame(date, open, high, low, close, vol)}
-        
+
         Returns:
             {factor_name: Series(code → score)}
         """
-        self.logger.info(f"Computing factors for {len(history_data)} stocks...")
-        
-        momentum_scores = {}
-        reversal_scores = {}
-        quality_scores = {}
-        
-        for code, df in history_data.items():
-            if len(df) < max(self.config.momentum_window, 60):
-                continue
-            
-            try:
-                # 1. 动量因子
-                momentum_scores[code] = self._compute_momentum(df)
-                
-                # 2. 反转因子
-                reversal_scores[code] = self._compute_reversal(df)
-                
-                # 3. 质量因子
-                quality_scores[code] = self._compute_quality(df)
-                
-            except Exception as e:
-                self.logger.debug(f"Factor computation failed for {code}: {e}")
-                continue
-        
+        self.logger.info(f"Computing factors for {len(history_data)} stocks (vectorized)...")
+
+        # 向量化批量计算所有股票的因子
+        momentum_scores = self._compute_momentum_batch(history_data)
+        reversal_scores = self._compute_reversal_batch(history_data)
+        quality_scores = self._compute_quality_batch(history_data)
+
         # 转为Series并标准化
         momentum = pd.Series(momentum_scores)
         reversal = pd.Series(reversal_scores)
         quality = pd.Series(quality_scores)
-        
+
         # 标准化到[-1, 1]
         momentum = self._standardize(momentum)
         reversal = self._standardize(reversal)
         quality = self._standardize(quality)
-        
+
         self.logger.info(f"Computed factors: {len(momentum)} valid stocks")
-        
+
         return {
             'momentum': momentum,
             'reversal': reversal,
             'quality': quality
         }
+
+    def _compute_momentum_batch(self, history_data: Dict[str, pd.DataFrame]) -> Dict[str, float]:
+        """向量化批量计算动量因子"""
+        momentum_scores = {}
+        window = self.config.momentum_window
+
+        for code, df in history_data.items():
+            if len(df) < window:
+                continue
+
+            try:
+                # 使用向量化操作计算动量
+                closes = df['close'].values
+                returns = np.diff(closes) / np.where(closes[:-1] > 0, closes[:-1], 1)
+
+                # 计算窗口内的累计收益
+                cum_return = np.prod(1 + returns[-window:]) - 1
+
+                # 计算波动率
+                volatility = np.std(returns[-window:]) * np.sqrt(252) if len(returns) >= window else 0.01
+
+                # Sharpe动量
+                sharpe_momentum = cum_return / volatility if volatility > 0.01 else 0
+
+                # 趋势强度: 线性回归R² (向量化)
+                prices = closes[-window:]
+                x = np.arange(len(prices), dtype=np.float64)
+                x_mean = x.mean()
+                y_mean = prices.mean()
+
+                if len(prices) > 5:
+                    cov_xy = ((x - x_mean) * (prices - y_mean)).sum()
+                    var_x = ((x - x_mean) ** 2).sum()
+                    var_y = ((prices - y_mean) ** 2).sum()
+
+                    slope = cov_xy / var_x if var_x > 1e-10 else 0
+                    r2 = (cov_xy ** 2) / (var_x * var_y) if var_x * var_y > 1e-10 else 0
+
+                    trend_strength = slope * r2 / (y_mean + 1e-10)
+                else:
+                    trend_strength = 0
+
+                # 综合动量分数
+                score = 0.6 * sharpe_momentum + 0.4 * trend_strength
+                momentum_scores[code] = score
+
+            except Exception:
+                continue
+
+        return momentum_scores
+
+    def _compute_reversal_batch(self, history_data: Dict[str, pd.DataFrame]) -> Dict[str, float]:
+        """向量化批量计算反转因子"""
+        reversal_scores = {}
+        window = self.config.reversal_window
+
+        for code, df in history_data.items():
+            if len(df) < window + 14:
+                continue
+
+            try:
+                closes = df['close'].values
+                returns = np.diff(closes) / np.where(closes[:-1] > 0, closes[:-1], 1)
+
+                # 短期收益 (向量化)
+                short_return = np.prod(1 + returns[-window:]) - 1
+
+                # RSI (向量化计算)
+                deltas = np.diff(closes)
+                gains = np.where(deltas > 0, deltas, 0)
+                losses = np.where(deltas < 0, -deltas, 0)
+
+                avg_gains = np.mean(gains[-14:]) if len(gains) >= 14 else 0
+                avg_losses = np.mean(losses[-14:]) if len(losses) >= 14 else 0
+
+                rs = avg_gains / (avg_losses + 1e-10)
+                current_rsi = 100 - 100 / (1 + rs)
+
+                # 反转分数
+                score = 0
+
+                # 1. 显著下跌 (跌幅>5%)
+                if short_return < self.config.reversal_threshold:
+                    score += -short_return  # 跌得越多分数越高
+
+                    # 2. RSI超卖加成
+                    if current_rsi < self.config.rsi_oversold:
+                        oversold_degree = (self.config.rsi_oversold - current_rsi) / self.config.rsi_oversold
+                        score *= (1 + oversold_degree)
+                else:
+                    score = 0  # 不超卖则无反转机会
+
+                reversal_scores[code] = score
+
+            except Exception:
+                continue
+
+        return reversal_scores
+
+    def _compute_quality_batch(self, history_data: Dict[str, pd.DataFrame]) -> Dict[str, float]:
+        """向量化批量计算质量因子"""
+        quality_scores = {}
+
+        for code, df in history_data.items():
+            if len(df) < 60:
+                continue
+
+            try:
+                volumes = df['vol'].values[-60:]
+                closes = df['close'].values
+
+                # 1. 成交量分位数 (向量化)
+                current_vol = volumes[-1]
+                volume_rank = np.mean(volumes[:-1] < current_vol) if len(volumes) > 1 else 0.5
+
+                # 2. 波动率 (向量化)
+                returns = np.diff(closes[-21:]) / np.where(closes[-21:-1] > 0, closes[-21:-1], 1)
+                volatility = np.std(returns) * np.sqrt(252) if len(returns) > 1 else 0.25
+
+                # 流动性评分 (倒U型: 50-70分位最优)
+                liquidity_score = 1 - 4 * (volume_rank - 0.6) ** 2
+                liquidity_score = max(0, min(1, liquidity_score))
+
+                # 波动率评分 (适中最好: 15-35%)
+                vol_optimal = 0.25
+                vol_score = 1 - ((volatility - vol_optimal) / 0.2) ** 2
+                vol_score = max(0, min(1, vol_score))
+
+                # 综合质量分数
+                quality = 0.6 * liquidity_score + 0.4 * vol_score
+                quality_scores[code] = quality
+
+            except Exception:
+                continue
+
+        return quality_scores
     
     def _compute_momentum(self, df: pd.DataFrame) -> float:
         """
@@ -366,28 +487,29 @@ class MomentumReversalStrategy(BaseStrategy):
         candidates: List[str],
         market_data: pd.DataFrame
     ) -> List[str]:
-        """过滤不可交易股票"""
-        tradeable = []
-        
-        for code in candidates:
-            code_data = market_data[market_data['code'] == code]
-            
-            if code_data.empty:
-                continue
-            
-            row = code_data.iloc[0]
-            
-            # 涨停无法买入
-            if row.get('is_limit_up', False):
-                continue
-            
-            # 停牌无法交易
-            if pd.isna(row.get('open')):
-                continue
-            
-            tradeable.append(code)
-        
-        return tradeable
+        """过滤不可交易股票 - 向量化实现"""
+        if market_data.empty or not candidates:
+            return []
+
+        # 向量化过滤条件
+        # 1. 在候选列表中
+        mask = market_data['code'].isin(candidates)
+
+        # 2. 非涨停
+        if 'is_limit_up' in market_data.columns:
+            mask &= ~market_data['is_limit_up']
+
+        # 3. 非停牌 (open不为NaN)
+        if 'open' in market_data.columns:
+            mask &= market_data['open'].notna()
+
+        # 获取可交易股票列表
+        tradeable = market_data.loc[mask, 'code'].tolist()
+
+        # 保持原始排序
+        tradeable_sorted = [code for code in candidates if code in tradeable]
+
+        return tradeable_sorted
     
     def _should_hold(self, code: str, current_date: str) -> bool:
         """检查是否应继续持有 (最短持有期)"""

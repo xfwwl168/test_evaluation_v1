@@ -31,7 +31,7 @@ from dataclasses import dataclass
 import logging
 
 from strategy.base import BaseStrategy, StrategyContext, Signal, OrderSide
-from risk.risk_manager import RiskManager
+from engine.risk import RiskManager
 from config import settings
 
 
