@@ -108,9 +108,9 @@ class CacheKey:
             return False
         if len(key) == 0 or len(key) > 200:
             return False
-        # 只能包含字母、数字、冒号、下划线
+        # 只能包含字母、数字、冒号、下划线、减号
         import re
-        return bool(re.match(r'^[a-zA-Z0-9:_]+$', key))
+        return bool(re.match(r'^[a-zA-Z0-9:_\-]+$', key))
 
 
 class ThreadSafeLRUCache:
@@ -283,6 +283,43 @@ class ThreadSafeLRUCache:
             
             return entry.value
 
+    def get_or_compute(self, key: str, compute_fn: callable, force_recompute: bool = False) -> Any:
+        """
+        获取缓存或计算（真正的LRU + 线程安全 + 避免锁竞争）
+        """
+        if not CacheKey.validate_key(key):
+            return compute_fn()
+
+        # 1. 尝试从缓存获取 (在锁内)
+        with self._lock:
+            if not force_recompute and key in self._cache:
+                entry = self._cache[key]
+                # 检查TTL
+                if not self.ttl or time.time() - entry.timestamp <= self.ttl:
+                    # 更新访问并移到末尾 (LRU)
+                    entry.update_access()
+                    self._cache.move_to_end(key)
+                    
+                    if self.enable_stats and self.stats:
+                        self.stats.hits += 1
+                    return entry.value
+            
+            if self.enable_stats and self.stats:
+                self.stats.misses += 1
+
+        # 2. 计算 (在锁外，避免阻塞)
+        try:
+            value = compute_fn()
+        except Exception as e:
+            self.logger.error(f"Computation failed for key {key}: {e}")
+            return None
+
+        # 3. 存入缓存 (在锁内)
+        if value is not None:
+            self.put(key, value)
+            
+        return value
+
 
 class CacheManager:
     """全局缓存管理器"""
@@ -344,6 +381,11 @@ class CacheManager:
         cache = self.get_cache(cache_name)
         return cache.put(key, value, ttl)
     
+    def get_or_compute(self, cache_name: str, key: str, compute_fn: callable, force_recompute: bool = False) -> Any:
+        """获取或计算"""
+        cache = self.get_cache(cache_name)
+        return cache.get_or_compute(key, compute_fn, force_recompute)
+
     def get(self, cache_name: str, key: str) -> Optional[Any]:
         """获取缓存"""
         cache = self.get_cache(cache_name)
@@ -503,11 +545,8 @@ if __name__ == "__main__":
     second_call_time = time.time() - start_time
     print(f"Second call result: {result}, time: {second_call_time:.4f}s")
     
-    # 测试性能提升
-    if first_call_time > 0:
-        speedup = first_call_time / second_call_time
-        print(f"Speedup: {speedup:.2f}x")
+    print(f"Speedup: {first_call_time / second_call_time:.2f}x")
     
-    # 测试全局统计
+    # 全局统计
     global_stats = cm.global_stats()
     print(f"\nGlobal Stats: {global_stats}")

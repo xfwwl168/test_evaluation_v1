@@ -223,199 +223,156 @@ class SignalGeneratorOptimized:
         """向量化生成信号"""
         signals_dict = {}
         
-        # 并行处理每个股票
-        futures = {}
-        for code, df in data_dict.items():
-            if code in factor_results:
-                future = self.executor.submit(
-                    self._generate_signals_for_stock,
-                    code, df, factor_results[code]
-                )
-                futures[future] = code
+        # 1. 提取所有因子数据到列表 (准备向量化)
+        codes = []
+        alpha_scores = []
+        rsrs_adaptives = []
+        volume_surges = []
+        pressure_dists = []
+        support_dists = []
+        risk_scores = []
+        signal_qualities = []
+        market_states = []
         
-        # 收集结果
-        for future in as_completed(futures):
-            code = futures[future]
-            try:
-                signals = future.result()
-                if signals:
-                    signals_dict[code] = signals
-            except Exception as e:
-                self.logger.error(f"Signal generation failed for {code}: {str(e)}")
+        prices = []
+        volumes = []
+        timestamps = []
         
+        # 只处理有因子结果的代码
+        valid_codes = [c for c in data_dict.keys() if c in factor_results]
+        
+        if not valid_codes:
+            return {}
+
+        for code in valid_codes:
+            res = factor_results[code]
+            df = data_dict[code]
+            if df.empty:
+                continue
+                
+            codes.append(code)
+            alpha_scores.append(res.alpha_score)
+            rsrs_adaptives.append(res.rsrs_adaptive)
+            volume_surges.append(res.volume_surge)
+            pressure_dists.append(res.pressure_distance)
+            support_dists.append(res.support_distance)
+            risk_scores.append(res.risk_score)
+            signal_qualities.append(res.signal_quality)
+            market_states.append(res.market_state.value)
+            
+            # 最新市场数据
+            latest = df.iloc[-1]
+            prices.append(latest['close'])
+            volumes.append(latest['vol'])
+            timestamps.append(df.index[-1])
+
+        if not codes:
+            return {}
+
+        # 2. 转换为 DataFrame 进行批量逻辑运算
+        df_sig = pd.DataFrame({
+            'code': codes,
+            'alpha_score': alpha_scores,
+            'rsrs_adaptive': rsrs_adaptives,
+            'volume_surge': volume_surges,
+            'pressure_distance': pressure_dists,
+            'support_distance': support_dists,
+            'risk_score': risk_scores,
+            'signal_quality': signal_qualities,
+            'market_state': market_states,
+            'price': prices,
+            'volume': volumes,
+            'timestamp': timestamps
+        })
+        
+        # 3. 向量化逻辑判断
+        # 买入逻辑
+        buy_mask = (
+            (df_sig['alpha_score'] >= self.config.alpha_threshold) &
+            (df_sig['rsrs_adaptive'] >= self.config.rsrs_threshold) &
+            (df_sig['volume_surge'] >= self.config.volume_surge_threshold) &
+            (df_sig['pressure_distance'] <= self.config.pressure_distance_threshold) &
+            (df_sig['support_distance'] >= self.config.support_safety_threshold) &
+            (df_sig['risk_score'] <= self.config.max_risk_score) &
+            (df_sig['signal_quality'] >= self.config.min_signal_quality)
+        )
+        
+        # 卖出逻辑
+        sell_mask = (
+            (df_sig['alpha_score'] <= -self.config.alpha_threshold) |
+            (df_sig['risk_score'] > 0.8) |
+            (df_sig['pressure_distance'] < 0.02) |
+            (df_sig['market_state'].isin(["强势熊市", "弱势熊市"]))
+        )
+        
+        # 4. 生成信号对象 (对筛选出的结果)
+        # 处理买入
+        buys = df_sig[buy_mask]
+        for _, row in buys.iterrows():
+            code = row['code']
+            res = factor_results[code]
+            
+            strength = self._calculate_signal_strength(res, SignalType.BUY)
+            confidence = self._calculate_confidence(res)
+            
+            signal = create_signal(
+                code=code,
+                signal_type=SignalType.BUY,
+                strength=strength,
+                timestamp=row['timestamp'],
+                price=row['price'],
+                volume=row['volume'],
+                factor_values={
+                    'alpha_score': row['alpha_score'],
+                    'rsrs_adaptive': row['rsrs_adaptive'],
+                    'volume_surge': row['volume_surge'],
+                    'signal_quality': row['signal_quality'],
+                    'risk_score': row['risk_score']
+                },
+                confidence=confidence,
+                metadata={
+                    'market_state': row['market_state'],
+                    'pressure_distance': row['pressure_distance'],
+                    'support_distance': row['support_distance']
+                }
+            )
+            if code not in signals_dict: signals_dict[code] = []
+            signals_dict[code].append(signal)
+
+        # 处理卖出
+        sells = df_sig[sell_mask]
+        for _, row in sells.iterrows():
+            code = row['code']
+            res = factor_results[code]
+            
+            strength = self._calculate_signal_strength(res, SignalType.SELL)
+            confidence = self._calculate_confidence(res)
+            
+            signal = create_signal(
+                code=code,
+                signal_type=SignalType.SELL,
+                strength=strength,
+                timestamp=row['timestamp'],
+                price=row['price'],
+                volume=row['volume'],
+                factor_values={
+                    'alpha_score': row['alpha_score'],
+                    'rsrs_adaptive': row['rsrs_adaptive'],
+                    'volume_surge': row['volume_surge'],
+                    'signal_quality': row['signal_quality'],
+                    'risk_score': row['risk_score']
+                },
+                confidence=confidence,
+                metadata={
+                    'market_state': row['market_state'],
+                    'pressure_distance': row['pressure_distance'],
+                    'support_distance': row['support_distance']
+                }
+            )
+            if code not in signals_dict: signals_dict[code] = []
+            signals_dict[code].append(signal)
+
         return signals_dict
-    
-    def _generate_signals_for_stock(
-        self,
-        code: str,
-        df: pd.DataFrame,
-        factor_result: AlphaFactorResult
-    ) -> List[Signal]:
-        """为单个股票生成信号"""
-        try:
-            signals = []
-            current_time = df.index[-1] if len(df) > 0 else pd.Timestamp.now()
-            
-            # 获取最新的价格数据
-            latest_data = df.iloc[-1] if len(df) > 0 else None
-            if latest_data is None:
-                return signals
-            
-            current_price = latest_data['close']
-            current_volume = latest_data['vol']
-            
-            # 生成买入信号
-            buy_signal = self._generate_buy_signal(
-                code, current_price, current_volume, current_time, factor_result
-            )
-            if buy_signal:
-                signals.append(buy_signal)
-            
-            # 生成卖出信号
-            sell_signal = self._generate_sell_signal(
-                code, current_price, current_volume, current_time, factor_result
-            )
-            if sell_signal:
-                signals.append(sell_signal)
-            
-            return signals
-            
-        except Exception as e:
-            self.logger.error(f"Signal generation failed for {code}: {str(e)}")
-            return []
-    
-    def _generate_buy_signal(
-        self,
-        code: str,
-        price: float,
-        volume: float,
-        timestamp: pd.Timestamp,
-        factor_result: AlphaFactorResult
-    ) -> Optional[Signal]:
-        """生成买入信号"""
-        # 检查买入条件
-        if not self._should_generate_buy_signal(factor_result):
-            return None
-        
-        # 计算信号强度
-        strength = self._calculate_signal_strength(factor_result, SignalType.BUY)
-        
-        # 创建信号
-        signal = create_signal(
-            code=code,
-            signal_type=SignalType.BUY,
-            strength=strength,
-            timestamp=timestamp,
-            price=price,
-            volume=volume,
-            factor_values={
-                'alpha_score': factor_result.alpha_score,
-                'rsrs_adaptive': factor_result.rsrs_adaptive,
-                'volume_surge': factor_result.volume_surge,
-                'signal_quality': factor_result.signal_quality,
-                'risk_score': factor_result.risk_score
-            },
-            confidence=self._calculate_confidence(factor_result),
-            metadata={
-                'market_state': factor_result.market_state.value,
-                'pressure_distance': factor_result.pressure_distance,
-                'support_distance': factor_result.support_distance
-            }
-        )
-        
-        return signal
-    
-    def _generate_sell_signal(
-        self,
-        code: str,
-        price: float,
-        volume: float,
-        timestamp: pd.Timestamp,
-        factor_result: AlphaFactorResult
-    ) -> Optional[Signal]:
-        """生成卖出信号"""
-        # 检查卖出条件
-        if not self._should_generate_sell_signal(factor_result):
-            return None
-        
-        # 计算信号强度
-        strength = self._calculate_signal_strength(factor_result, SignalType.SELL)
-        
-        # 创建信号
-        signal = create_signal(
-            code=code,
-            signal_type=SignalType.SELL,
-            strength=strength,
-            timestamp=timestamp,
-            price=price,
-            volume=volume,
-            factor_values={
-                'alpha_score': factor_result.alpha_score,
-                'rsrs_adaptive': factor_result.rsrs_adaptive,
-                'volume_surge': factor_result.volume_surge,
-                'signal_quality': factor_result.signal_quality,
-                'risk_score': factor_result.risk_score
-            },
-            confidence=self._calculate_confidence(factor_result),
-            metadata={
-                'market_state': factor_result.market_state.value,
-                'pressure_distance': factor_result.pressure_distance,
-                'support_distance': factor_result.support_distance
-            }
-        )
-        
-        return signal
-    
-    def _should_generate_buy_signal(self, factor_result: AlphaFactorResult) -> bool:
-        """判断是否应该生成买入信号"""
-        # Alpha分数阈值
-        if factor_result.alpha_score < self.config.alpha_threshold:
-            return False
-        
-        # RSRS阈值
-        if factor_result.rsrs_adaptive < self.config.rsrs_threshold:
-            return False
-        
-        # 成交量异动阈值
-        if factor_result.volume_surge < self.config.volume_surge_threshold:
-            return False
-        
-        # 压力位距离阈值
-        if factor_result.pressure_distance > self.config.pressure_distance_threshold:
-            return False
-        
-        # 支撑安全阈值
-        if factor_result.support_distance < self.config.support_safety_threshold:
-            return False
-        
-        # 风险控制
-        if factor_result.risk_score > self.config.max_risk_score:
-            return False
-        
-        # 信号质量阈值
-        if factor_result.signal_quality < self.config.min_signal_quality:
-            return False
-        
-        return True
-    
-    def _should_generate_sell_signal(self, factor_result: AlphaFactorResult) -> bool:
-        """判断是否应该生成卖出信号"""
-        # 卖出逻辑：Alpha分数过低或风险过高
-        if factor_result.alpha_score > -self.config.alpha_threshold:
-            return False
-        
-        if factor_result.risk_score > 0.8:
-            return True
-        
-        # 压力位过近
-        if factor_result.pressure_distance < 0.02:
-            return True
-        
-        # 市场状态恶劣
-        if factor_result.market_state.value in ["强势熊市", "弱势熊市"]:
-            return True
-        
-        return False
     
     def _calculate_signal_strength(
         self,

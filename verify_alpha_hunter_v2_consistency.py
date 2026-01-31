@@ -133,10 +133,10 @@ class AlphaHunterV2ConsistencyValidator:
         
         # 生成报告
         total_tests = len(self.tier1_results) + len(self.tier2_results)
-        passed_tests = sum(
+        passed_tests = sum([
             len([r for r in self.tier1_results if r.passed]),
             len([r for r in self.tier2_results if r.passed])
-        )
+        ])
         
         report = ValidationReport(
             tier1_results=self.tier1_results,
