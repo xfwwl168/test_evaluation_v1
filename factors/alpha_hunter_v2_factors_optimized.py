@@ -274,43 +274,75 @@ class AdaptiveRSRSFactorOptimized(BaseFactor):
             low: np.ndarray,
             windows: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """多窗口 OLS (带缓存)"""
-        window = self.base_window
+        """多窗口 OLS (修正版：支持自适应窗口，批量计算)"""
         n = len(high)
-
-        if n < window:
-            return np.full(n, np.nan), np.full(n, np.nan), np.full(n, np.nan)
-
-        low_win = sliding_window_view(low, window)
-        high_win = sliding_window_view(high, window)
-
-        x_mean = low_win.mean(axis=1, keepdims=True)
-        y_mean = high_win.mean(axis=1, keepdims=True)
-
-        x_dev = low_win - x_mean
-        y_dev = high_win - y_mean
-
-        cov_xy = (x_dev * y_dev).sum(axis=1)
-        var_x = (x_dev ** 2).sum(axis=1)
-        var_y = (y_dev ** 2).sum(axis=1)
-
-        slope = safe_divide(cov_xy, var_x)
-
-        denom = var_x * var_y
-        r2 = safe_divide(cov_xy ** 2, denom)
-
-        # 残差标准差
-        intercept = y_mean.flatten() - slope * x_mean.flatten()
-        y_pred = slope.reshape(-1, 1) * low_win + intercept.reshape(-1, 1)
-        residual_std = (high_win - y_pred).std(axis=1)
-
-        # 填充
-        pad = np.full(window - 1, np.nan)
-        slope_full = np.concatenate([pad, slope])
-        r2_full = np.concatenate([pad, r2])
-        residual_full = np.concatenate([pad, residual_std])
-
-        return slope_full, r2_full, residual_full
+        
+        # 结果数组
+        slope = np.full(n, np.nan, dtype=np.float64)
+        r2 = np.full(n, np.nan, dtype=np.float64)
+        residual_std = np.full(n, np.nan, dtype=np.float64)
+        
+        # 获取所有唯一的窗口大小
+        # 这里的unique通常只有几个值 (如 12, 14, 22, 24)
+        unique_windows = np.unique(windows)
+        
+        # 对每个窗口大小分别计算
+        for w in unique_windows:
+            w = int(w)
+            if n < w:
+                continue
+                
+            # 找到使用此窗口大小的索引
+            mask = (windows == w)
+            if not np.any(mask):
+                continue
+            
+            # 使用 sliding_window_view 计算整个序列
+            low_win = sliding_window_view(low, w)
+            high_win = sliding_window_view(high, w)
+            
+            # 向量化计算 OLS 参数
+            x_mean = low_win.mean(axis=1)
+            y_mean = high_win.mean(axis=1)
+            
+            x_dev = low_win - x_mean[:, None]
+            y_dev = high_win - y_mean[:, None]
+            
+            # 协方差和方差
+            cov_xy = (x_dev * y_dev).sum(axis=1)
+            var_x = (x_dev ** 2).sum(axis=1)
+            var_y = (y_dev ** 2).sum(axis=1)
+            
+            # Slope, R2
+            slopes_w = safe_divide(cov_xy, var_x)
+            
+            denom = var_x * var_y
+            r2_w = safe_divide(cov_xy ** 2, denom)
+            
+            # Residuals
+            intercept = y_mean - slopes_w * x_mean
+            y_pred = slopes_w[:, None] * low_win + intercept[:, None]
+            resid_std_w = (high_win - y_pred).std(axis=1)
+            
+            # 映射结果到对应位置
+            # sliding_window_view 结果长度为 n - w + 1
+            # 索引 i 对应原始数据索引 i + w - 1
+            
+            valid_indices = np.where(mask)[0]
+            # 只有当索引足够大时才有结果
+            valid_indices = valid_indices[valid_indices >= w - 1]
+            
+            if len(valid_indices) == 0:
+                continue
+                
+            # 计算对应的 source 索引
+            source_indices = valid_indices - (w - 1)
+            
+            slope[valid_indices] = slopes_w[source_indices]
+            r2[valid_indices] = r2_w[source_indices]
+            residual_std[valid_indices] = resid_std_w[source_indices]
+            
+        return slope, r2, residual_std
 
     @cached("factor_cache", key_prefix="robust_zscore")
     def _robust_zscore(self, arr: np.ndarray, window: int) -> np.ndarray:

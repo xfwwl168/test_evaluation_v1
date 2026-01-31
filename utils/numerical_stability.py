@@ -108,22 +108,26 @@ class NumericalStability:
         numerator: Union[np.ndarray, pd.Series, float],
         denominator: Union[np.ndarray, pd.Series, float],
         fill_value: float = 0.0,
-        epsilon: Optional[float] = None
+        epsilon: Optional[float] = None,
+        max_abs_value: Optional[float] = None
     ) -> Union[np.ndarray, pd.Series, float]:
         """
-        安全除法运算
+        安全除法运算 (增强版：支持相对阈值和极大值检查)
         
         Args:
             numerator: 分子
             denominator: 分母
             fill_value: 分母为0或过小时的填充值
-            epsilon: 最小分母阈值
+            epsilon: 最小分母阈值 (绝对)
+            max_abs_value: 结果最大绝对值阈值
             
         Returns:
             除法结果
         """
         if epsilon is None:
             epsilon = self.config.division_epsilon
+        if max_abs_value is None:
+            max_abs_value = self.config.division_max_value
         
         try:
             # 转换为numpy数组
@@ -137,23 +141,39 @@ class NumericalStability:
             
             # 处理标量情况
             if numerator.ndim == 0 and denominator.ndim == 0:
-                if abs(denominator) < epsilon or np.isnan(denominator) or np.isinf(denominator):
+                abs_num = abs(numerator)
+                abs_den = abs(denominator)
+                relative_threshold = max(epsilon, abs_num * 1e-8)
+                
+                if abs_den < relative_threshold or np.isnan(denominator) or np.isinf(denominator):
                     return fill_value
+                
                 result = numerator / denominator
                 
                 # 检查溢出
-                if np.isnan(result) or np.isinf(result) or abs(result) > self.config.division_max_value:
+                if np.isnan(result) or np.isinf(result) or abs(result) > max_abs_value:
                     return fill_value
                 
                 self.stats['safe_divisions'] += 1
                 return result
             
-            # 数组情况
+            # 数组情况 - 处理广播
+            if numerator.shape != denominator.shape:
+                numerator, denominator = np.broadcast_arrays(numerator, denominator)
+                # broadcast_arrays returns read-only views often, but we only read from them.
+                # result needs to be allocated.
+            
             result = np.full_like(numerator, fill_value, dtype=np.float64)
+            
+            abs_num = np.abs(numerator)
+            abs_den = np.abs(denominator)
+            
+            # 相对阈值判断
+            relative_threshold = np.maximum(epsilon, abs_num * 1e-8)
             
             # 有效除法位置
             valid_mask = (
-                (np.abs(denominator) >= epsilon) &
+                (abs_den > relative_threshold) &
                 (~np.isnan(denominator)) &
                 (~np.isinf(denominator)) &
                 (~np.isnan(numerator)) &
@@ -161,21 +181,40 @@ class NumericalStability:
             )
             
             if np.any(valid_mask):
-                temp_result = numerator[valid_mask] / denominator[valid_mask]
+                # 使用 np.errstate 忽略除法警告，因为我们已经过滤了
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    temp_result = numerator[valid_mask] / denominator[valid_mask]
                 
-                # 检查溢出
-                overflow_mask = (
-                    (np.abs(temp_result) > self.config.division_max_value) |
-                    np.isnan(temp_result) |
-                    np.isinf(temp_result)
-                )
+                # 检查结果有效性 (finite check)
+                finite_mask = np.isfinite(temp_result)
                 
-                if np.any(overflow_mask):
-                    temp_result[overflow_mask] = fill_value
-                    self.stats['overflows_handled'] += np.sum(overflow_mask)
+                # 检查极大值
+                extreme_mask = np.abs(temp_result) > max_abs_value
                 
-                result[valid_mask] = temp_result
-                self.stats['safe_divisions'] += np.sum(valid_mask)
+                # 最终有效掩码 (在valid_mask子集内)
+                final_valid_in_subset = finite_mask & (~extreme_mask)
+                
+                # 将子集结果映射回全集
+                # 注意：valid_mask是全集掩码
+                # temp_result 对应 valid_mask=True 的位置
+                
+                # 我们需要更新 result 在 valid_mask 为 True 且 final_valid_in_subset 为 True 的位置
+                
+                # 可以这样做：
+                # 1. 先把 temp_result 赋值给 result[valid_mask]
+                # 2. 然后把不满足 final_valid_in_subset 的位置设为 fill_value
+                
+                current_values = result[valid_mask]
+                current_values[:] = temp_result # 赋值
+                
+                # 处理无效值
+                invalid_in_subset = ~final_valid_in_subset
+                if np.any(invalid_in_subset):
+                    current_values[invalid_in_subset] = fill_value
+                    self.stats['overflows_handled'] += np.sum(invalid_in_subset)
+                
+                result[valid_mask] = current_values
+                self.stats['safe_divisions'] += np.sum(final_valid_in_subset)
             
             # 保持原始类型
             if isinstance(numerator, pd.Series):

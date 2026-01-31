@@ -34,7 +34,7 @@ from config import settings
 class BatchQueryConfig:
     """批量查询配置"""
     max_workers: int = 8
-    chunk_size: int = 50
+    chunk_size: int = 500
     timeout: float = 30.0
     enable_cache: bool = True
     cache_ttl: float = 300.0  # 5分钟
@@ -312,28 +312,39 @@ class BatchQueryManager:
         end_date: Union[str, datetime, date]
     ) -> Dict[str, pd.DataFrame]:
         """查询单个批次的OHLCV数据"""
-        results = {}
-        
-        # 尝试并行查询单个代码
-        futures = {}
-        for code in codes:
-            future = self.executor.submit(
-                self.db.get_stock_history, 
-                code, start_date, end_date
-            )
-            futures[future] = code
-        
-        # 收集结果
-        for future in as_completed(futures):
-            code = futures[future]
-            try:
-                df = future.result()
-                if df is not None and not df.empty:
-                    results[code] = df
-            except Exception as e:
-                self.logger.warning(f"Query failed for {code}: {str(e)}")
-        
-        return results
+        try:
+            # 使用 get_multi_stock_panel 进行批量查询 (一次SQL)
+            df_batch = self.db.get_multi_stock_panel(codes, start_date, end_date)
+            
+            if df_batch is None or df_batch.empty:
+                return {}
+            
+            # 数据验证
+            # 1. 检查 High >= Low
+            if (df_batch['high'] < df_batch['low']).any():
+                invalid_count = (df_batch['high'] < df_batch['low']).sum()
+                self.logger.warning(f"Found {invalid_count} rows with High < Low, filtering...")
+                df_batch = df_batch[df_batch['high'] >= df_batch['low']]
+            
+            # 2. 检查 Close 在 High/Low 之间 (可选，因为High/Low可能不准，但Close通常准)
+            # 这里我们只过滤严重错误的
+            
+            # 3. 检查 Volume >= 0
+            if (df_batch['vol'] < 0).any():
+                df_batch = df_batch[df_batch['vol'] >= 0]
+                
+            # 分组并转换为字典
+            results = {}
+            for code, group in df_batch.groupby('code'):
+                # 确保按日期排序
+                df_sorted = group.sort_values('date').reset_index(drop=True)
+                results[str(code)] = df_sorted
+                
+            return results
+            
+        except Exception as e:
+            self.logger.error(f"Batch query failed: {str(e)}")
+            return {}
     
     def _compute_factors_for_code(
         self,
